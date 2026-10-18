@@ -2,7 +2,8 @@ import {createDemoChart, createBlankChart, validateChart, serializeChart, effect
 import {Renderer} from './renderer.js';
 import {AudioEngine} from './audio.js';
 import {copySelection, pasteSelection, deleteSelection, mirrorSelection, moveSelection, resizeHold} from './operations.js';
-import {pathX, eventValue, noteX, invalidateAnimationCache} from './animation.js';
+import {pathX, eventValue, invalidateAnimationCache} from './animation.js';
+import {collectImpacts, IMPACT_LIFETIME, MAX_ACTIVE_IMPACTS} from './impact.js';
 
 const $ = id => document.getElementById(id);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -430,18 +431,22 @@ window.addEventListener('beforeunload',()=>{try{localStorage.setItem(STORAGE,ser
 new ResizeObserver(()=>renderer.resize()).observe($('canvas-wrap'));
 
 function frame(now){
+  state.effectTime=now/1000;
+  state.playbackRate=Number($('playback-rate').value);
   if(state.playing){
     const current=audio.time;
     state.time=Math.min(chart.duration,current);
     if(!audio.playing&&current<chart.duration-.0001)audio.play(current,Number($('playback-rate').value));
-    if(current>=chart.duration-.0001){pause();seek(chart.duration);}
+    if(current>=chart.duration-.0001){pause();audio.seek(chart.duration);}
     const beat=Math.floor((state.time-chart.offset)*chart.bpm/60);
     if($('metronome').checked&&beat>lastBeat&&beat>=0)audio.tick(beat%(chart.beatsPerBar||4)===0);
     lastBeat=beat;
-    for(const n of chart.notes){const t=effectiveTime(n,chart);if(t>lastPlayTime&&t<=state.time){state.hits.push({x:noteX(chart,n,t),time:t});if($('hitsound').checked)audio.hit();}}
+    const impacts=collectImpacts(chart,lastPlayTime,state.time,state.effectTime,state.playbackRate);
+    state.hits=state.hits.concat(impacts).slice(-MAX_ACTIVE_IMPACTS);
+    if($('hitsound').checked)for(const hit of impacts)if(hit.kind==='head')audio.hit();
     lastPlayTime=state.time;
   }
-  state.hits=state.hits.filter(h=>state.time-h.time<.38&&state.time>=h.time);
+  state.hits=state.hits.filter(h=>state.effectTime-h.startedAt<(h.kind==='tail'?.18:IMPACT_LIFETIME));
   renderer.draw(state);
   if(now-frameTime>40){renderer.drawTimeline(state);syncTime();frameTime=now;}
   requestAnimationFrame(frame);

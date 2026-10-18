@@ -1,4 +1,5 @@
 import {pathX, eventValue, noteX, noteOpacity, scrollDistance} from './animation.js';
+import {impactFrame, createImpactSprites, drawImpact, drawHoldContact} from './impact.js';
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const TAU = Math.PI * 2;
 const PALETTES = {
@@ -40,6 +41,7 @@ export class Renderer {
     this.th = 1;
     this.zoom = 100;
     this.dpr = 1;
+    this.impactSprites = new Map();
     this.resize();
   }
 
@@ -379,21 +381,22 @@ export class Renderer {
 
   _drawHits(state, g, light) {
     const ctx = this.ctx;
+    if (!this.impactSprites.has(light)) this.impactSprites.set(light, createImpactSprites(light));
+    const sprites = this.impactSprites.get(light);
+    const clock = state.effectTime ?? performance.now() / 1000;
+    const unit = g.noteWidth / 176;
+    if (state.playing) for (const note of state.chart.notes) {
+      const start = note.time + state.chart.offset;
+      if (!note.duration || state.time < start || state.time >= start + note.duration) continue;
+      const x = g.left + noteX(state.chart, note, state.time) * (g.right - g.left);
+      const remaining = (start + note.duration - state.time) / (state.playbackRate || 1);
+      const strength = Math.min(1, remaining / .06) * noteOpacity(state.chart, note, state.time);
+      if (strength > 0) drawHoldContact(ctx, sprites, x, g.hitY, unit, clock, strength, light);
+    }
     for (const hit of state.hits || []) {
-      const age = state.time - hit.time;
-      if (age < 0 || age > .34) continue;
-      const progress = age / .34;
+      const age = clock - hit.startedAt;
       const x = g.left + hit.x * (g.right - g.left);
-      const opacity = Math.pow(1 - progress, 2);
-      ctx.save();
-      ctx.globalAlpha = opacity;
-      ctx.strokeStyle = light ? '#729b8d' : '#f4efcd';
-      ctx.lineWidth = 1.5 - progress;
-      ctx.beginPath();
-      ctx.ellipse(x, g.hitY, 8 + progress * 38, 4 + progress * 13, 0, 0, TAU);
-      ctx.stroke();
-      line(ctx, x - 18 - progress * 30, g.hitY, x + 18 + progress * 30, g.hitY, light ? '#46685b' : '#fffae3', 2 * (1 - progress));
-      ctx.restore();
+      drawImpact(ctx, sprites, impactFrame(age, hit.kind), x, g.hitY, unit, light);
     }
   }
 
