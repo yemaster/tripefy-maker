@@ -1,6 +1,8 @@
 const FORMAT = "tripefy.chart";
 const VERSION = 1;
 const SCENES = new Set(["dusk", "night", "clear", "overcast"]);
+const CURVES = new Set(["linear", "easeIn", "easeOut", "easeInOut"]);
+const EVENT_RANGES = { speed: [0.1, 8], x: [-1, 1], opacity: [0, 1] };
 let nextId = 0;
 
 export function createId() {
@@ -39,6 +41,44 @@ function string(value, label, fallback) {
   return value;
 }
 
+function curve(value, label) {
+  const result = value === undefined ? "linear" : value;
+  if (!CURVES.has(result)) throw new Error(`${label}必须是 linear、easeIn、easeOut 或 easeInOut。`);
+  return result;
+}
+
+function normalizePath(value, duration, x, label) {
+  if (value !== undefined && !Array.isArray(value)) throw new Error(`${label}的位置节点必须是数组。`);
+  if (duration === 0) {
+    if (value?.length) throw new Error(`${label}是单点音符，不能包含长按位置节点。`);
+    return [];
+  }
+  if (!value?.length) return [{ time: 0, x, curve: "linear" }, { time: duration, x, curve: "linear" }];
+  if (value.length < 2) throw new Error(`${label}的位置节点必须包含长按的起点和终点。`);
+  const path = value.map((item, index) => {
+    const nodeLabel = `${label}的第 ${index + 1} 个位置节点`;
+    const node = object(item, nodeLabel);
+    return {
+      time: number(node.time, `${nodeLabel}时间`, 0),
+      x: number(node.x, `${nodeLabel}横向位置`, 0, 1),
+      curve: curve(node.curve, `${nodeLabel}缓动`),
+    };
+  });
+  if (Math.abs(path[0].time) > 1e-9 || Math.abs(path.at(-1).time - duration) > 1e-9) {
+    throw new Error(`${label}的位置节点必须从 0 秒开始，并在长按结束时间终止。`);
+  }
+  if (Math.abs(path[0].x - x) > 1e-9) throw new Error(`${label}的位置起点必须与音符头部对齐。`);
+  path[0].time = 0;
+  path[0].x = x;
+  path.at(-1).time = duration;
+  for (let i = 1; i < path.length; i += 1) {
+    if (path[i].time <= path[i - 1].time || path[i].time > duration) {
+      throw new Error(`${label}的位置节点时间必须依次递增，不能重复或超出长按长度。`);
+    }
+  }
+  return path;
+}
+
 export function createBlankChart() {
   return {
     format: FORMAT,
@@ -51,6 +91,7 @@ export function createBlankChart() {
     duration: 120,
     scene: { preset: "dusk" },
     notes: [],
+    events: [],
   };
 }
 
@@ -113,6 +154,7 @@ export function validateChart(input) {
       do { id = createId(); } while (ids.has(id));
     }
     if (typeof id !== "string") throw new Error(`${label}的 ID 必须是文字。`);
+    if (id === "all") throw new Error(`${label}不能使用保留 ID「all」。`);
     if (ids.has(id)) throw new Error(`${label}的 ID 重复，请为每个音符使用不同 ID。`);
     ids.add(id);
     const time = number(note.time, `${label}的时间`, 0);
@@ -122,9 +164,62 @@ export function validateChart(input) {
     if (time + offset + length > duration + 1e-9) {
       throw new Error(`${label}超出谱面长度，请延长谱面或调整音符时间。`);
     }
-    return { id, time, x, duration: length };
+    return {
+      id, time, x, duration: length,
+      opacity: number(note.opacity === undefined ? 1 : note.opacity, `${label}的透明度`, 0, 1),
+      speed: number(note.speed === undefined ? 1 : note.speed, `${label}的速度`, 0.1, 8),
+      path: normalizePath(note.path, length, x, label),
+    };
   });
   notes.sort((a, b) => a.time - b.time || a.x - b.x);
+
+  const sourceEvents = source.events === undefined ? [] : source.events;
+  if (!Array.isArray(sourceEvents)) throw new Error("事件列表必须是数组。");
+  if (sourceEvents.length > 50000) throw new Error("单个谱面最多支持 50000 个事件。");
+  const eventIds = new Set();
+  const channels = new Map();
+  const events = sourceEvents.map((value, index) => {
+    const label = `第 ${index + 1} 个事件`;
+    const event = object(value, label);
+    let id = event.id;
+    if (id === undefined || id === null || id === "") {
+      do { id = createId(); } while (eventIds.has(id));
+    }
+    if (typeof id !== "string") throw new Error(`${label}的 ID 必须是文字。`);
+    if (eventIds.has(id)) throw new Error(`${label}的 ID 重复。`);
+    eventIds.add(id);
+    const target = string(event.target, `${label}的目标`);
+    if (target !== "all" && !ids.has(target)) throw new Error(`${label}引用的音符不存在。`);
+    const property = event.property;
+    if (!Object.hasOwn(EVENT_RANGES, property)) throw new Error(`${label}的属性必须是 speed、x 或 opacity。`);
+    const [minimum, maximum] = EVENT_RANGES[property];
+    const time = number(event.time, `${label}的时间`, 0);
+    const length = number(event.duration, `${label}的持续时间`, 0);
+    if (time + offset < -1e-9 || time + offset + length > duration + 1e-9) {
+      throw new Error(`${label}在偏移后超出谱面播放范围。`);
+    }
+    const normalized = {
+      id, target, property, time, duration: length,
+      from: number(event.from, `${label}的起始值`, minimum, maximum),
+      to: number(event.to, `${label}的结束值`, minimum, maximum),
+      curve: curve(event.curve, `${label}的缓动`),
+    };
+    const key = JSON.stringify([target, property]);
+    if (!channels.has(key)) channels.set(key, []);
+    channels.get(key).push(normalized);
+    return normalized;
+  });
+  for (const channel of channels.values()) {
+    channel.sort((a, b) => a.time - b.time);
+    for (let i = 1; i < channel.length; i += 1) {
+      const previous = channel[i - 1];
+      const current = channel[i];
+      if (current.time === previous.time || current.time < previous.time + previous.duration - 1e-9) {
+        throw new Error("同一目标、同一属性的事件不能重叠或在同一时刻重复开始。");
+      }
+    }
+  }
+  events.sort((a, b) => a.time - b.time || a.target.localeCompare(b.target) || a.property.localeCompare(b.property));
 
   return {
     format: FORMAT,
@@ -143,6 +238,7 @@ export function validateChart(input) {
     duration,
     scene: { preset: scene.preset },
     notes,
+    events,
   };
 }
 

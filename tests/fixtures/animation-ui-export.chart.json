@@ -1,0 +1,657 @@
+{
+  "format": "tripefy.chart",
+  "version": 1,
+  "metadata": {
+    "title": "Afterglow",
+    "artist": "余晖",
+    "charter": "",
+    "difficulty": "NORMAL",
+    "level": 3
+  },
+  "audio": "",
+  "bpm": 108,
+  "beatsPerBar": 4,
+  "offset": 0,
+  "duration": 112,
+  "scene": {
+    "preset": "dusk"
+  },
+  "notes": [
+    {
+      "id": "73a81bec-aaa1-49fb-bff2-80748bdd27a9",
+      "time": 1.1111111111111112,
+      "x": 0.28,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "9e28c9d4-e40c-4599-aed4-22eae5a1100b",
+      "time": 1.6666666666666667,
+      "x": 0.32,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "968d56e7-585b-4e39-a795-64baffcf80f4",
+      "time": 1.6666666666666667,
+      "x": 0.68,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "69289b7b-f839-4438-a173-6b99cd8fcc0f",
+      "time": 2.2222222222222223,
+      "x": 0.38,
+      "duration": 0,
+      "opacity": 0.66,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "cb56d33f-51ff-4fcd-9d5d-08f6edded218",
+      "time": 2.7777777777777777,
+      "x": 0.42,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "ad0cdcbf-8db5-4f58-a8fa-a08812315636",
+      "time": 3.3333333333333335,
+      "x": 0.64,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "b7412183-fc28-4a84-98cb-17ed6faf25b9",
+      "time": 3.8888888888888893,
+      "x": 0.32,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "42ffd194-7fde-4607-afe1-7d25ad513d5f",
+      "time": 3.8888888888888893,
+      "x": 0.68,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "bb57839d-759b-497b-abe5-2400170d7e48",
+      "time": 4.444444444444445,
+      "x": 0.62,
+      "duration": 2,
+      "opacity": 0.8,
+      "speed": 1.2,
+      "path": [
+        {
+          "time": 0,
+          "x": 0.62,
+          "curve": "linear"
+        },
+        {
+          "time": 0.9722222222222223,
+          "x": 0.42826333711691267,
+          "curve": "easeInOut"
+        },
+        {
+          "time": 2,
+          "x": 0.62,
+          "curve": "linear"
+        }
+      ]
+    },
+    {
+      "id": "893b19ba-bd6d-4ee7-9fc8-bdfb35041519",
+      "time": 5.555555555555555,
+      "x": 0.42,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "3d2b8d8f-06fa-4c34-b0b2-cdbb9402c0b1",
+      "time": 6.111111111111112,
+      "x": 0.32,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "1e16897a-4ba3-4b4b-af35-06e394bee0a5",
+      "time": 6.111111111111112,
+      "x": 0.68,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "42382188-9d98-4e52-97ff-64b659061333",
+      "time": 6.666666666666667,
+      "x": 0.38,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "71227f48-809a-486f-b45f-9c7f43932a38",
+      "time": 7.222222222222222,
+      "x": 0.35,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "dae3958d-4f20-4bbe-b92e-8600057b1760",
+      "time": 7.777777777777779,
+      "x": 0.72,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "c46bff05-67f7-46af-93b1-4c8c84e5c49e",
+      "time": 8.055555555555555,
+      "x": 0.32,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "f9580150-0931-4e87-87dc-889865d3c6d5",
+      "time": 8.055555555555555,
+      "x": 0.68,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "239d2f25-0916-4827-9c08-0759490062e6",
+      "time": 8.333333333333334,
+      "x": 0.32,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "6c5f2e6c-13b1-4927-9dfe-ce610c84a807",
+      "time": 8.333333333333334,
+      "x": 0.68,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "cd1c44cd-7202-4d54-bb76-15c759d7a1fb",
+      "time": 8.61111111111111,
+      "x": 0.38,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "6dc8c9dd-b3cd-4b8b-bba9-105714ccdcbc",
+      "time": 8.88888888888889,
+      "x": 0.62,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "b05d5838-20c2-40d5-b8ef-e47164dee116",
+      "time": 9.444444444444445,
+      "x": 0.58,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "91e8e158-c594-4d7b-bf58-87a4ad241b07",
+      "time": 10,
+      "x": 0.35,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "2cee2184-1fd9-43a8-82b0-e1783fd5f03f",
+      "time": 10.555555555555555,
+      "x": 0.32,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "a2db3af7-026b-47da-bbcd-4268894c7157",
+      "time": 10.555555555555555,
+      "x": 0.68,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "bd91344e-6124-436b-ab5d-20510e3c06dc",
+      "time": 11.11111111111111,
+      "x": 0.38,
+      "duration": 0.8333333333333334,
+      "opacity": 1,
+      "speed": 1,
+      "path": [
+        {
+          "time": 0,
+          "x": 0.38,
+          "curve": "linear"
+        },
+        {
+          "time": 0.8333333333333334,
+          "x": 0.38,
+          "curve": "linear"
+        }
+      ]
+    },
+    {
+      "id": "49f57632-b49f-4d2e-a432-8a5d46536f54",
+      "time": 12.222222222222223,
+      "x": 0.58,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "22c94799-8523-4a16-9a43-d4c6ed29eef4",
+      "time": 12.777777777777779,
+      "x": 0.32,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "fbb300ff-df6b-4f3a-a61a-c60a02367e3a",
+      "time": 12.777777777777779,
+      "x": 0.68,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "d7e56614-287a-4f69-82ab-a2c6d9ee8f0f",
+      "time": 13.333333333333334,
+      "x": 0.62,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "4530913a-f184-4a85-92db-45af0275ee06",
+      "time": 13.88888888888889,
+      "x": 0.64,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "c348fa40-c091-40a0-9de6-6c21507126ae",
+      "time": 14.444444444444445,
+      "x": 0.28,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "05771049-ab46-4b57-b6b4-9ca424cb793c",
+      "time": 15,
+      "x": 0.32,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "bfa3b219-2845-4931-bfd2-bc4a14d5c4e7",
+      "time": 15,
+      "x": 0.68,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "b7700b2c-94ea-4c6c-91b8-ec1c61bebeb1",
+      "time": 15.555555555555557,
+      "x": 0.38,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "97655528-081b-4239-b1f5-063e03faa1cd",
+      "time": 16.11111111111111,
+      "x": 0.42,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "85dbd99c-8f4d-478b-9af6-0f354b94f81b",
+      "time": 16.666666666666668,
+      "x": 0.64,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "f2e0e16c-91fc-45e1-bc93-8f3e54d2c46b",
+      "time": 17.22222222222222,
+      "x": 0.32,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "c9bc4437-6a80-4d2d-841e-c62e17e204bd",
+      "time": 17.22222222222222,
+      "x": 0.68,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "6d7ccc56-3798-4b71-a407-c86c64846614",
+      "time": 17.77777777777778,
+      "x": 0.62,
+      "duration": 0.8333333333333334,
+      "opacity": 1,
+      "speed": 1,
+      "path": [
+        {
+          "time": 0,
+          "x": 0.62,
+          "curve": "linear"
+        },
+        {
+          "time": 0.8333333333333334,
+          "x": 0.62,
+          "curve": "linear"
+        }
+      ]
+    },
+    {
+      "id": "9c825878-c747-49ce-98d3-dd875a58f5c2",
+      "time": 18.88888888888889,
+      "x": 0.42,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "7ae863d6-acd8-4bcd-aba3-7e5c04958201",
+      "time": 19.444444444444446,
+      "x": 0.32,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "232b1270-6c0e-498e-85f8-069b5a41c73b",
+      "time": 19.444444444444446,
+      "x": 0.68,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "3ea32bf3-d0a3-4431-bf41-9321c720f134",
+      "time": 20,
+      "x": 0.38,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "9b6aed67-074a-4adb-9294-1270beafed85",
+      "time": 20,
+      "x": 0.62,
+      "duration": 2,
+      "opacity": 0.8,
+      "speed": 1.2,
+      "path": [
+        {
+          "time": 0,
+          "x": 0.62,
+          "curve": "linear"
+        },
+        {
+          "time": 0.9722222222222223,
+          "x": 0.42826333711691267,
+          "curve": "easeInOut"
+        },
+        {
+          "time": 2,
+          "x": 0.62,
+          "curve": "linear"
+        }
+      ]
+    },
+    {
+      "id": "edd7b212-4b00-4391-bc6d-ab630d43136a",
+      "time": 20.555555555555557,
+      "x": 0.35,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "ea572b66-6768-4ac6-b94d-b6176c3a0c0a",
+      "time": 21.11111111111111,
+      "x": 0.42,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "97f9e518-6f3a-41a4-bb0c-117fb4c81f46",
+      "time": 21.11111111111111,
+      "x": 0.72,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "a6e4aa51-07e0-4567-b661-e8ac9612cc5f",
+      "time": 21.666666666666668,
+      "x": 0.32,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "620cdf88-c42c-410e-8605-a2a744f2fa94",
+      "time": 21.666666666666668,
+      "x": 0.68,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "d9733335-e499-460d-a1d9-0a39827e65b0",
+      "time": 22.22222222222222,
+      "x": 0.62,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "e2980a5a-1f78-4092-85a6-8639ead85e68",
+      "time": 22.77777777777778,
+      "x": 0.58,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "35916bd5-3da2-45fe-ac4a-668d88a45ef6",
+      "time": 23.333333333333336,
+      "x": 0.35,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "f370a74e-df37-438b-a147-90a6b78fb032",
+      "time": 23.88888888888889,
+      "x": 0.32,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "081e1026-6a39-4d31-ae18-c5106fd420bd",
+      "time": 23.88888888888889,
+      "x": 0.68,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "c0f915ae-b738-4669-98d9-220a5a0c62de",
+      "time": 24.444444444444446,
+      "x": 0.38,
+      "duration": 0.8333333333333334,
+      "opacity": 1,
+      "speed": 1,
+      "path": [
+        {
+          "time": 0,
+          "x": 0.38,
+          "curve": "linear"
+        },
+        {
+          "time": 0.8333333333333334,
+          "x": 0.38,
+          "curve": "linear"
+        }
+      ]
+    },
+    {
+      "id": "7dc190a7-750a-4095-9ed1-028cb814797e",
+      "time": 25.555555555555557,
+      "x": 0.58,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "8611d86e-9e18-478c-b350-881bcdd5f309",
+      "time": 26.11111111111111,
+      "x": 0.32,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "8dbc5909-00b6-47c8-8228-6fe4424892a9",
+      "time": 26.11111111111111,
+      "x": 0.68,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "9f8a98ab-2fce-42fb-8c0e-dc772ece591a",
+      "time": 26.666666666666668,
+      "x": 0.62,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "a09ae4d1-6232-4636-84e6-6ce594918c96",
+      "time": 27.222222222222225,
+      "x": 0.64,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    }
+  ],
+  "events": [
+    {
+      "id": "70d0dd99-da61-4b6a-8b37-1ae2b8b42969",
+      "target": "bb57839d-759b-497b-abe5-2400170d7e48",
+      "property": "speed",
+      "time": 4.027777777777778,
+      "duration": 2,
+      "from": 1,
+      "to": 1.8,
+      "curve": "easeInOut"
+    },
+    {
+      "id": "9c745cde-a1cd-44b3-95c8-9c3c42206db5",
+      "target": "9b6aed67-074a-4adb-9294-1270beafed85",
+      "property": "speed",
+      "time": 19.583333333333332,
+      "duration": 2,
+      "from": 1,
+      "to": 1.8,
+      "curve": "easeInOut"
+    }
+  ]
+}

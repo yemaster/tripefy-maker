@@ -1,3 +1,4 @@
+import {pathX, eventValue, noteX, noteOpacity, scrollDistance} from './animation.js';
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const TAU = Math.PI * 2;
 const PALETTES = {
@@ -43,6 +44,7 @@ export class Renderer {
   }
 
   resize() {
+    this.font = typeof getComputedStyle === 'function' ? getComputedStyle(this.canvas).fontFamily : 'sans-serif';
     this.dpr = Math.max(1, globalThis.devicePixelRatio || 1);
     for (const [canvas, context, timeline] of [
       [this.canvas, this.ctx, false], [this.timelineCanvas, this.timelineCtx, true],
@@ -63,14 +65,14 @@ export class Renderer {
   }
 
   geometry() {
-    const fieldWidth = Math.min(820, Math.max(80, this.w - 156));
+    const fieldWidth = Math.max(80, this.w - 138);
     return {
       w: this.w, h: this.h,
-      left: (this.w - fieldWidth) / 2,
-      right: (this.w + fieldWidth) / 2,
+      left: 82,
+      right: 82 + fieldWidth,
       top: 44,
       hitY: this.h * 0.80,
-      noteWidth: clamp(fieldWidth * 0.12, 32, 100),
+      noteWidth: clamp(fieldWidth * 0.13, 32, 100),
       pxPerSecond: 145 * this.zoom / 100,
     };
   }
@@ -96,13 +98,24 @@ export class Renderer {
     for (const selectedPass of [true, false]) for (const note of state.chart.notes) {
       if (Boolean(state.selected?.has(note.id)) !== selectedPass) continue;
       const shape = this._noteGeometry(note, state, g);
-      if (Math.abs(point.canvasX - shape.x) > g.noteWidth / 2 + 5) continue;
+      if (selectedPass && state.selected.size === 1 && note.duration > 0) {
+        for (let index = 0; index < (note.path || []).length; index++) {
+          const p = this._pathPoint(note, note.path[index].time, state, g);
+          if (Math.hypot(point.canvasX - p.x, point.canvasY - p.y) <= 10) return {note, part:'node', index};
+        }
+      }
       const headDistance = Math.abs(point.canvasY - shape.headY);
       const tailDistance = Math.abs(point.canvasY - shape.tailY);
-      if (note.duration > 0 && tailDistance <= 10 && tailDistance < headDistance) return { note, part: 'tail' };
-      if (headDistance <= 11) return { note, part: 'head' };
+      if (note.duration > 0 && tailDistance <= 10 && tailDistance < headDistance && Math.abs(point.canvasX - shape.tailX) <= g.noteWidth / 2 + 5) return { note, part: 'tail' };
+      if (headDistance <= 11 && Math.abs(point.canvasX - shape.x) <= g.noteWidth / 2 + 5) return { note, part: 'head' };
       if (note.duration > 0 && point.canvasY > shape.tailY && point.canvasY < shape.headY) {
-        return { note, part: 'body' };
+        const points=this.pathPoints(note,state,g);
+        for(let i=1;i<points.length;i++) {
+          const a=points[i-1],b=points[i];
+          if(point.canvasY<Math.min(a.y,b.y)||point.canvasY>Math.max(a.y,b.y))continue;
+          const ratio=b.y===a.y?0:(point.canvasY-a.y)/(b.y-a.y);
+          if(Math.abs(point.canvasX-a.x-(b.x-a.x)*ratio)<=g.noteWidth/2+5)return {note,part:'body'};
+        }
       }
     }
     return null;
@@ -111,10 +124,67 @@ export class Renderer {
   _noteGeometry(note, state, g) {
     const start = note.time + state.chart.offset;
     const end = start + note.duration;
-    let headY = g.hitY - (start - state.time) * g.pxPerSecond;
-    const tailY = g.hitY - (end - state.time) * g.pxPerSecond;
-    if (state.view === 'preview' && note.duration > 0 && state.time >= start && state.time <= end) headY = g.hitY;
-    return { x: g.left + note.x * (g.right - g.left), headY, tailY, start, end };
+    const relative = state.view === 'preview' && note.duration > 0 ? clamp(state.time - start, 0, note.duration) : 0;
+    const head = this._pathPoint(note, relative, state, g);
+    const tail = this._pathPoint(note, note.duration || 0, state, g);
+    return {x:head.x, headY:head.y, tailX:tail.x, tailY:tail.y, start, end};
+  }
+
+  _pathPoint(note, relative, state, g) {
+    const endpoint = note.time + state.chart.offset + relative;
+    const preview = state.view === 'preview';
+    const x = preview ? clamp(pathX(note, relative) + eventValue(state.chart,'x',state.time) + (note.id ? eventValue(state.chart,'x',state.time,note.id) : 0),0,1) : pathX(note,relative);
+    const distance = preview ? scrollDistance(state.chart,note,state.time,endpoint) : endpoint - state.time;
+    return {x:g.left+x*(g.right-g.left),y:g.hitY-distance*g.pxPerSecond};
+  }
+
+  pathPoints(note, state, g = this.geometry()) {
+    const start = state.view === 'preview' ? clamp(state.time - note.time - state.chart.offset,0,note.duration) : 0;
+    const points = [];
+    const boundaries = [start,...(note.path || []).map(p=>p.time).filter(t=>t>start),note.duration];
+    for(let i=1;i<boundaries.length;i++) {
+      const a=boundaries[i-1],b=boundaries[i];
+      const steps=Math.max(1,Math.min(80,Math.ceil((b-a)*g.pxPerSecond/12)));
+      for(let j=0;j<steps;j++) points.push(this._pathPoint(note,a+(b-a)*j/steps,state,g));
+    }
+    points.push(this._pathPoint(note,note.duration,state,g));
+    return points;
+  }
+
+  intersects(note, marquee, state) {
+    const g=this.geometry(), half=g.noteWidth/2+5;
+    const left=Math.min(marquee.x1,marquee.x2),right=Math.max(marquee.x1,marquee.x2);
+    const top=Math.min(marquee.y1,marquee.y2),bottom=Math.max(marquee.y1,marquee.y2);
+    const points=note.duration>0?this.pathPoints(note,state,g):[this._pathPoint(note,0,state,g)];
+    for(let i=0;i<points.length;i++) {
+      const a=points[i],b=points[Math.min(i+1,points.length-1)];
+      if(Math.max(a.y,b.y)+7<top||Math.min(a.y,b.y)-7>bottom)continue;
+      const dy=b.y-a.y;
+      const u=dy?clamp((top-7-a.y)/dy,0,1):0,v=dy?clamp((bottom+7-a.y)/dy,0,1):1;
+      const x1=a.x+(b.x-a.x)*u,x2=a.x+(b.x-a.x)*v;
+      if(Math.max(x1,x2)+half>=left&&Math.min(x1,x2)-half<=right)return true;
+    }
+    return false;
+  }
+
+  hitEvent(clientX,clientY,state) {
+    const p=this.pointToNote(clientX,clientY,state),g=this.geometry();
+    if(p.canvasX<g.left-24||p.canvasX>g.left-8)return null;
+    return (state.chart.events||[]).find(e=>Math.abs(p.canvasY-(g.hitY-(e.time+state.chart.offset-state.time)*g.pxPerSecond))<=8)||null;
+  }
+
+  _drawEvents(state,g) {
+    const ctx=this.ctx;
+    for(const e of state.chart.events||[]) {
+      const y=g.hitY-(e.time+state.chart.offset-state.time)*g.pxPerSecond;
+      const end=y-e.duration*g.pxPerSecond;
+      if(y<g.top||end>g.h)continue;
+      const selected=e.id===state.selectedEventId;
+      const color=selected?'#f5f5f5':'#a1a1aa';
+      line(ctx,g.left-17,Math.max(g.top,end),g.left-17,y,color,selected?3:1.5);
+      ctx.fillStyle=color;ctx.fillRect(g.left-21,y-4,8,8);
+      if(selected){line(ctx,g.left,y,g.right,y,'#737373');ctx.font=`11px ${this.font}`;ctx.textAlign='left';ctx.fillText({speed:'速度',x:'横移',opacity:'透明度'}[e.property],g.left+8,y-7);}
+    }
   }
 
   draw(state) {
@@ -136,12 +206,12 @@ export class Renderer {
       line(ctx, g.right + 10.5, g.top, g.right + 10.5, g.h, '#2d2d32');
       this._drawRuler(state, g);
       if (state.grid) this._drawGrid(state, g);
-      this._drawVerticalWave(state, g);
     }
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, g.top, g.w, g.h - g.top);
     ctx.clip();
+    if(!preview) this._drawEvents(state,g);
     line(ctx, g.left - 10, g.hitY + 0.5, g.right + 10, g.hitY + 0.5,
       preview ? (light ? 'rgba(67,86,83,.7)' : 'rgba(240,239,216,.8)') : '#a1a1aa', 1.5);
     this._drawChords(state, g, light);
@@ -171,14 +241,14 @@ export class Renderer {
     ctx.restore();
     if (!preview) {
       ctx.fillStyle = '#81818b';
-      ctx.font = '10px "Manrope", sans-serif';
+      ctx.font = `10px ${this.font}`;
       ctx.textAlign = 'center';
       for (const position of [0, .25, .5, .75, 1]) {
         ctx.fillText(`${position * 100}`, g.left + position * (g.right - g.left), 26);
       }
       ctx.textAlign = 'left';
       ctx.fillStyle = '#92929c';
-      ctx.font = '10px "Manrope", sans-serif';
+      ctx.font = `10px ${this.font}`;
     }
   }
 
@@ -187,12 +257,12 @@ export class Renderer {
     const start = Math.max(0, state.time - (g.h - g.hitY) / g.pxPerSecond);
     const end = Math.min(state.chart.duration, state.time + (g.hitY - g.top) / g.pxPerSecond);
     const interval = g.pxPerSecond < 75 ? 2 : 1;
-    ctx.font = '10px "Manrope", sans-serif';
+    ctx.font = `10px ${this.font}`;
     ctx.textAlign = 'right';
     for (let t = Math.ceil(start / interval) * interval; t <= end; t += interval) {
       const y = g.hitY - (t - state.time) * g.pxPerSecond;
       ctx.fillStyle = '#7f8c85';
-      ctx.fillText(secondsLabel(t), g.left - 39, y + 3);
+      ctx.fillText(secondsLabel(t), g.left - 35, y + 3);
       line(ctx, g.left - 32, y + .5, g.left - 25, y + .5, '#4b5750');
     }
   }
@@ -208,7 +278,7 @@ export class Renderer {
     const end = Math.min(state.chart.duration, state.time + (g.hitY - g.top) / g.pxPerSecond);
     const begin = Math.max(0, Math.ceil((start - state.chart.offset) / step));
     const finish = Math.ceil((end - state.chart.offset) / step);
-    ctx.font = '10px "Manrope", sans-serif';
+    ctx.font = `10px ${this.font}`;
     ctx.textAlign = 'right';
     for (let tick = begin; tick <= finish && tick - begin < 2000; tick++) {
       const b = tick * span / division;
@@ -225,31 +295,17 @@ export class Renderer {
     }
   }
 
-  _drawVerticalWave(state, g) {
-    if (!state.audioPeaks?.length || !(state.audioDuration > 0)) return;
-    const ctx = this.ctx;
-    const peaks = state.audioPeaks;
-    const center = g.right + 42;
-    ctx.fillStyle = 'rgba(146,165,148,.22)';
-    for (let y = g.top; y < g.h; y += 2) {
-      const t = state.time + (g.hitY - y) / g.pxPerSecond;
-      if (t < 0 || t >= state.audioDuration) continue;
-      const index = Math.floor(t / state.audioDuration * peaks.length);
-      const amplitude = clamp(Math.abs(peaks[index] || 0), 0, 1) * 15;
-      ctx.fillRect(center - amplitude, y, amplitude * 2, 1.5);
-    }
-  }
-
   _drawChords(state, g, light) {
     const groups = new Map();
     for (const note of state.chart.notes) {
       const effective = note.time + state.chart.offset;
       if (state.view === 'preview' && effective < state.time - .03) continue;
-      const y = g.hitY - (effective - state.time) * g.pxPerSecond;
+      const shape = this._noteGeometry(note,state,g);
+      const y = shape.headY;
       if (y < g.top || y > g.h) continue;
-      const key = Math.round(note.time * 1000000);
+      const key = `${Math.round(note.time * 1000000)}:${Math.round(y)}`;
       if (!groups.has(key)) groups.set(key, { y, xs: [] });
-      groups.get(key).xs.push(g.left + note.x * (g.right - g.left));
+      groups.get(key).xs.push(shape.x);
     }
     const color = light ? 'rgba(62,85,80,.48)' : 'rgba(224,231,214,.40)';
     for (const group of groups.values()) {
@@ -272,33 +328,38 @@ export class Renderer {
     const passed = state.time - shape.end;
     if (preview && passed > .22) return;
     const fade = ghost ? .42 : preview ? clamp(1 - Math.max(0, passed) / .22, 0, 1) : shape.end < state.time ? .46 : 1;
+    const opacity = preview ? noteOpacity(state.chart,note,state.time) : Math.max(.22,note.opacity ?? 1);
     ctx.save();
-    ctx.globalAlpha = fade;
+    ctx.globalAlpha = fade * opacity;
     const width = g.noteWidth;
     const height = clamp(width * .12, 8, 12);
     const x = shape.x - width / 2;
     const head = shape.headY;
     const tail = shape.tailY;
     if (isHold) {
-      ctx.fillStyle = light ? 'rgba(61,89,80,.21)' : 'rgba(224,234,213,.17)';
-      ctx.fillRect(x, tail, width, Math.max(0, head - tail));
-      line(ctx, x + .5, tail, x + .5, head, light ? 'rgba(61,89,80,.25)' : 'rgba(223,233,214,.26)');
-      line(ctx, x + width - .5, tail, x + width - .5, head, light ? 'rgba(61,89,80,.25)' : 'rgba(223,233,214,.26)');
-      ctx.globalAlpha = fade * .72;
-      this._drawJade(x, tail - height / 2, width, height, light);
-      ctx.globalAlpha = fade;
+      const points=this.pathPoints(note,state,g);
+      ctx.beginPath();
+      points.forEach((p,i)=>i?ctx.lineTo(p.x-width/2,p.y):ctx.moveTo(p.x-width/2,p.y));
+      [...points].reverse().forEach(p=>ctx.lineTo(p.x+width/2,p.y));
+      ctx.closePath();
+      ctx.fillStyle=light?'rgba(61,89,80,.25)':'rgba(224,234,213,.20)';
+      ctx.fill();
+      ctx.strokeStyle=selected&&!preview?'#a3a3a3':light?'rgba(61,89,80,.4)':'rgba(223,233,214,.30)';
+      ctx.lineWidth=1;ctx.stroke();
+      this._drawJade(shape.tailX-width/2,tail-height/2,width,height,light);
     }
-    this._drawJade(x, head - height / 2, width, height, light);
-    if (selected && !preview) {
-      ctx.strokeStyle = '#d2bd87';
-      ctx.lineWidth = 1.5;
-      roundedRect(ctx, x - 3, head - height / 2 - 3, width + 6, height + 6, 2);
-      ctx.stroke();
-      if (isHold) {
-        ctx.strokeStyle = 'rgba(167,192,165,.75)';
-        ctx.strokeRect(x - 3, tail - height / 2 - 3, width + 6, Math.max(height + 6, head - tail + height + 6));
-        ctx.fillStyle = '#c5d4bd';
-        ctx.fillRect(shape.x - 3, tail - 3, 6, 6);
+    this._drawJade(x,head-height/2,width,height,light);
+    if(selected&&!preview) {
+      ctx.globalAlpha=1;
+      ctx.strokeStyle='#fafafa';ctx.lineWidth=1.5;
+      roundedRect(ctx,x-3,head-height/2-3,width+6,height+6,2);ctx.stroke();
+      if(isHold&&state.selected.size===1) {
+        (note.path||[]).forEach((node,index)=>{
+          const p=this._pathPoint(note,node.time,state,g);
+          const active=index===state.selectedNodeIndex;
+          ctx.fillStyle=active?'#fafafa':'#262626';ctx.strokeStyle='#fafafa';
+          ctx.beginPath();ctx.arc(p.x,p.y,active?5:4,0,TAU);ctx.fill();ctx.stroke();
+        });
       }
     }
     ctx.restore();

@@ -110,6 +110,86 @@ test("title must contain text, and audio paths match the native player contract"
   }
 });
 
+test("older charts gain note defaults, straight hold paths, and an empty event list", () => {
+  const input = createBlankChart();
+  delete input.events;
+  input.notes = [tap(), tap({ time: 5, x: 0.3, duration: 2 })];
+  const chart = validateChart(input);
+  assert.deepEqual(chart.events, []);
+  assert.equal(chart.notes[0].opacity, 1);
+  assert.equal(chart.notes[0].speed, 1);
+  assert.deepEqual(chart.notes[0].path, []);
+  assert.deepEqual(chart.notes[1].path, [
+    { time: 0, x: 0.3, curve: "linear" }, { time: 2, x: 0.3, curve: "linear" },
+  ]);
+  assert.equal(input.notes[0].opacity, undefined);
+});
+
+test("snake paths, note properties, and timeline events survive serialization", () => {
+  const input = createBlankChart();
+  input.notes = [tap({ id: "hold", x: 0.2, duration: 4, opacity: 0.7, speed: 1.8, path: [
+    { time: 0, x: 0.2, curve: "linear" },
+    { time: 1, x: 0.8, curve: "easeIn" },
+    { time: 4, x: 0.4, curve: "easeOut" },
+  ] })];
+  input.events = [
+    { id: "speed", target: "all", property: "speed", time: 2, duration: 3, from: 1, to: 2, curve: "easeInOut" },
+    { id: "shift", target: "hold", property: "x", time: 2, duration: 3, from: 0, to: -0.2, curve: "linear" },
+    { id: "fade", target: "hold", property: "opacity", time: 2, duration: 3, from: 1, to: 0.5, curve: "easeOut" },
+  ];
+  const chart = validateChart(input);
+  assert.deepEqual(JSON.parse(serializeChart(chart)), chart);
+  chart.notes[0].path[1].x = 0.1;
+  chart.events[0].to = 0.4;
+  assert.equal(input.notes[0].path[1].x, 0.8);
+  assert.equal(input.events.find(item => item.id === chart.events[0].id).to, 2);
+});
+
+test("invalid snake paths and note animation properties are rejected", () => {
+  const invalid = [
+    { id: "all" }, { opacity: -0.1 }, { opacity: 1.1 }, { speed: 0.09 }, { speed: 8.1 },
+    { opacity: NaN }, { speed: Infinity }, { path: {} },
+    { path: [{ time: 0, x: 0.5 }, { time: 1, x: 0.5 }] },
+    { duration: 2, path: [{ time: 0, x: 0.5 }] },
+    { duration: 2, path: [{ time: 0.1, x: 0.5 }, { time: 2, x: 0.5 }] },
+    { duration: 2, path: [{ time: 0, x: 0.4 }, { time: 2, x: 0.5 }] },
+    { duration: 2, path: [{ time: 0, x: 0.5 }, { time: 1.9, x: 0.5 }] },
+    { duration: 2, path: [{ time: 0, x: 0.5 }, { time: 2, x: 1.1 }] },
+    { duration: 2, path: [{ time: 0, x: 0.5 }, { time: 1, x: 0.5 }, { time: 1, x: 0.3 }, { time: 2, x: 0.5 }] },
+    { duration: 2, path: [{ time: 0, x: 0.5 }, { time: 2, x: 0.5, curve: "other" }] },
+  ];
+  for (const extra of invalid) {
+    const chart = createBlankChart();
+    chart.notes = [tap(extra)];
+    assert.throws(() => validateChart(chart), /[\u4e00-\u9fff]/);
+  }
+});
+
+test("events validate ranges, references, offsets, and nonoverlapping channels", () => {
+  const base = { id: "event", target: "all", property: "speed", time: 1, duration: 2, from: 1, to: 2, curve: "linear" };
+  const chart = createBlankChart();
+  chart.notes = [tap({ id: "note" })];
+  for (const extra of [
+    { target: "missing" }, { property: "rotation" }, { time: -1 }, { time: 120 }, { duration: -1 },
+    { from: 0 }, { to: 9 }, { from: NaN }, { to: Infinity }, { curve: "unknown" },
+    { property: "x", from: -1.1, to: 0 }, { property: "x", from: 0, to: 1.1 },
+    { property: "opacity", from: 1.1, to: 0 },
+  ]) {
+    chart.events = [{ ...base, ...extra }];
+    assert.throws(() => validateChart(chart), /[\u4e00-\u9fff]/);
+  }
+  for (const extra of [{ time: 1, duration: 0 }, { time: 2, duration: 0 }, { time: 2, duration: 2 }]) {
+    chart.events = [base, { ...base, id: "second", ...extra }];
+    assert.throws(() => validateChart(chart), /重叠|同一时刻/);
+  }
+  chart.events = [base, { ...base, id: "second", time: 3, duration: 0 }, { ...base, id: "third", target: "note" }];
+  assert.equal(validateChart(chart).events.length, 3);
+  chart.events = [{ ...base, id: undefined, target: "note" }];
+  assert.ok(validateChart(chart).events[0].id);
+  chart.offset = -2;
+  assert.throws(() => validateChart(chart), /播放范围/);
+});
+
 test("snap respects offset, arbitrary divisions, and triplets", () => {
   const chart = createBlankChart();
   chart.bpm = 120;

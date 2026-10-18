@@ -1,6 +1,8 @@
 import {createDemoChart, createBlankChart, validateChart, serializeChart, effectiveTime, snapTime, formatTime, createId, History} from './model.js';
 import {Renderer} from './renderer.js';
 import {AudioEngine} from './audio.js';
+import {copySelection, pasteSelection, deleteSelection, mirrorSelection, moveSelection, resizeHold} from './operations.js';
+import {pathX, eventValue, noteX, invalidateAnimationCache} from './animation.js';
 
 const $ = id => document.getElementById(id);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -12,10 +14,10 @@ const audio = new AudioEngine();
 const renderer = new Renderer($('editor'), $('timeline'));
 let chart = createDemoChart();
 try { const saved = localStorage.getItem(STORAGE); if (saved) chart = validateChart(JSON.parse(saved)); } catch { /* A damaged autosave must not prevent opening the editor. */ }
-const state = {chart, time: 0, view:'edit', selected:new Set(), zoom:100, grid:true, division:4, span:1, snapEnabled:true, hover:null, draft:null, marquee:null, audioPeaks:null, audioDuration:0, playing:false, hits:[]};
-let tool = 'tap';
+const state = {chart, time: 0, view:'edit', selected:new Set(), selectedNodeIndex:0, selectedEventId:null, zoom:100, grid:true, division:4, span:1, snapEnabled:true, hover:null, draft:null, marquee:null, audioPeaks:null, audioDuration:0, playing:false, hits:[]};
+let tool = 'select';
 let drag = null;
-let clipboard = [];
+let clipboard = {notes:[],events:[]};
 let saveTimer = 0;
 let toastTimer = 0;
 let frameTime = 0;
@@ -29,7 +31,8 @@ const sceneNames = {dusk:'黄昏',night:'夜晚',clear:'晴朗',overcast:'阴天
 const toolNames = {select:'选择',tap:'Tap',hold:'Hold',erase:'擦除'};
 const toolHints = {select:'拖动框选 · Shift 多选 · 拖尾端调整 Hold',tap:'单击放置 Tap · 滚轮移动时间 · Space 播放',hold:'按下确定头部，向上拖出尾部 · Alt 临时取消吸附',erase:'单击或拖动擦除 · Ctrl Z 撤销'};
 
-function toast(message) { $('toast').textContent=message; $('toast').classList.add('visible'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),3200); }
+function toast(message) { $('toast').textContent=message; $('toast').hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('toast').hidden=true,3200); }
+function emit(name,detail){window.dispatchEvent(new CustomEvent('editor:'+name,{detail}));}
 function dirty() {
   $('save-state').textContent='保存中'; clearTimeout(saveTimer);
   saveTimer=setTimeout(()=>{try {localStorage.setItem(STORAGE,serializeChart(chart)); $('save-state').textContent='已保存';} catch { $('save-state').textContent='请导出保存'; }},250);
@@ -39,6 +42,7 @@ function replaceChart(next) {
   chart=next; state.chart=chart;
   if(audio.file && audio.file.name!==chart.audio){audio.clear();state.audioPeaks=null;state.audioDuration=0;}
   state.selected=new Set([...state.selected].filter(id=>chart.notes.some(n=>n.id===id)));
+  if(!chart.events.some(e=>e.id===state.selectedEventId))state.selectedEventId=null;
   if(state.time>chart.duration) seek(chart.duration);
   syncUI(); dirty();
 }
@@ -79,10 +83,10 @@ function syncUI(){
   $('total-time').textContent='/ '+formatTime(chart.duration);
   $('note-total').textContent=chart.notes.length+' NOTES';
   $('undo').disabled=!history.canUndo; $('redo').disabled=!history.canRedo;
-  $('paste-selection').disabled=!clipboard.length;
-  $$('[data-scene]').forEach(b=>b.classList.toggle('active',b.dataset.scene===chart.scene.preset));
+  $('paste-selection').disabled=!clipboard.notes.length;
+  $$('[data-scene]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.scene===chart.scene.preset)));
   $('scene-label').textContent=sceneNames[chart.scene.preset];
-  syncAudioUI();syncSelection();syncTime();
+  syncAudioUI();syncSelection();syncEvents();syncTime();
 }
 function syncSelection(){
   const notes=selectedNotes(), count=notes.length;
@@ -96,8 +100,49 @@ function syncSelection(){
     $('note-x').value=Number((notes[0].x*100).toFixed(3));
     $('note-duration').value=Number(notes[0].duration.toFixed(6));
     ['note-time','note-x','note-duration'].forEach(id=>$(id).disabled=count!==1);
+    for(const [id,key,scale]of [['note-opacity','opacity',100],['note-speed','speed',1]]) {
+      const same=notes.every(n=>n[key]===notes[0][key]);$(id).value=same?Number((notes[0][key]*scale).toFixed(3)):'';$(id).placeholder=same?'':'混合';
+    }
   }
+  syncPath();syncInspectorLists();
 }
+function singleHold(){const notes=selectedNotes();return notes.length===1&&notes[0].duration>0?notes[0]:null;}
+function syncPath(){
+  const note=singleHold();$('path-section').hidden=!note;if(!note)return;
+  state.selectedNodeIndex=clamp(state.selectedNodeIndex,0,note.path.length-1);
+  const index=state.selectedNodeIndex,node=note.path[index];
+  $('path-time').value=Number(node.time.toFixed(6));$('path-x').value=Number((node.x*100).toFixed(3));$('path-curve').value=node.curve;
+  $('path-time').disabled=index===0||index===note.path.length-1;$('path-curve').disabled=index===0;
+  $('delete-path-node').disabled=index===0||index===note.path.length-1;
+}
+function syncInspectorLists(){
+  emit('inspector',{scene:chart.scene.preset,pathNodes:(singleHold()?.path||[]).map((p,index)=>({...p,index})),events:chart.events.map(e=>({...e,time:e.time+chart.offset,targetLabel:e.target==='all'?'全部':`音符 ${chart.notes.findIndex(n=>n.id===e.target)+1}`})),selectedEventId:state.selectedEventId,selectedNodeIndex:state.selectedNodeIndex,noteCount:state.selected.size});
+}
+function syncEvents(){
+  const event=chart.events.find(e=>e.id===state.selectedEventId);$('event-fields').hidden=!event;
+  const select=$('event-target');select.replaceChildren(new Option('全部音符','all'));
+  chart.notes.forEach((n,i)=>select.add(new Option(`${i+1} · ${formatTime(effectiveTime(n,chart))}`,n.id)));
+  if(event){
+    for(const key of ['property','target','curve'])$('event-'+key).value=event[key];
+    $('event-duration').value=Number(event.duration.toFixed(6));
+    $('event-time').value=Number((event.time+chart.offset).toFixed(6));
+    const scale=event.property==='speed'?1:100;
+    const range=event.property==='speed'?[.1,8]:event.property==='opacity'?[0,100]:[-100,100];
+    const unit={speed:'速度 (×)',x:'偏移 (%)',opacity:'透明度 (%)'}[event.property];
+    for(const key of ['from','to']){const id='event-'+key;$(id).value=Number((event[key]*scale).toFixed(3));$(id).min=range[0];$(id).max=range[1];$(id).step=event.property==='speed'?.05:1;document.querySelector(`label[for="${id}"]`).textContent=(key==='from'?'起始':'结束')+unit;}
+  }
+  syncInspectorLists();
+}
+function selectEvent(id){state.selectedEventId=id;state.selected.clear();syncSelection();syncEvents();emit('panel',{panel:'events'});}
+function addPathNode(time=null,x=null){
+  const note=singleHold();if(!note)return;const index=state.selectedNodeIndex;
+  const left=note.path[Math.min(index,note.path.length-2)],right=note.path[Math.min(index+1,note.path.length-1)];
+  const relative=time===null?(left.time+right.time)/2:time;
+  if(relative<=0||relative>=note.duration||note.path.some(p=>Math.abs(p.time-relative)<1e-6))return;
+  if(commit(c=>{const n=c.notes.find(n=>n.id===note.id);n.path.push({time:relative,x:x===null?pathX(n,relative):x,curve:'linear'});n.path.sort((a,b)=>a.time-b.time);})){state.selectedNodeIndex=singleHold().path.findIndex(p=>Math.abs(p.time-relative)<1e-6);syncSelection();}
+}
+function deletePathNode(){const note=singleHold(),index=state.selectedNodeIndex;if(!note||index===0||index===note.path.length-1)return;commit(c=>c.notes.find(n=>n.id===note.id).path.splice(index,1));}
+function removeEvent(){if(state.selectedEventId)commit(c=>c.events=c.events.filter(e=>e.id!==state.selectedEventId));}
 function syncAudioUI(){
   const loaded=!!audio.file && audio.file.name===chart.audio;
   $('audio-name').textContent=chart.audio || '载入音频';
@@ -111,8 +156,8 @@ function syncTime(){
   $('status-position').textContent=`第 ${Math.floor(beats/(chart.beatsPerBar||4))+1} 小节 · 第 ${Math.floor(beats%(chart.beatsPerBar||4))+1} 拍`;
   $('back-to-start').hidden=state.time<chart.duration-0.001;
 }
-function setTool(next){tool=next;setView('edit');$$('[data-tool]').forEach(b=>{b.classList.toggle('active',b.dataset.tool===tool);b.setAttribute('aria-pressed',String(b.dataset.tool===tool));});$('status-tool').textContent=toolNames[tool];$('canvas-hint').textContent=toolHints[tool];$('editor').style.cursor=tool==='select'?'default':'crosshair';state.hover=null;}
-function setView(view){state.view=view;$$('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));document.querySelector('.workspace').classList.toggle('preview',view==='preview');$('canvas-mode').textContent=view==='edit'?'2D / EDIT':'2D / PREVIEW';$('canvas-hint').textContent=view==='edit'?toolHints[tool]:'Space 播放 / 暂停 · 滚轮定位';state.hover=null;}
+function setTool(next){tool=next;setView('edit');$$('[data-tool]').forEach(b=>{b.classList.toggle('active',b.dataset.tool===tool);b.setAttribute('aria-pressed',String(b.dataset.tool===tool));});$('status-tool').textContent=toolNames[tool];$('canvas-hint').textContent=toolHints[tool];$('editor').style.cursor=tool==='select'?'default':'crosshair';state.hover=null;emit('tool',{tool});}
+function setView(view){state.view=view;$$('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));document.querySelector('.workspace').classList.toggle('preview',view==='preview');$('canvas-mode').textContent=view==='edit'?'2D / EDIT':'2D / PREVIEW';$('canvas-hint').textContent=view==='edit'?toolHints[tool]:'Space 播放 / 暂停 · 滚轮定位';state.hover=null;emit('view',{view});}
 function snapStep(){return 60/chart.bpm*state.span/state.division;}
 function snap(seconds, alt=false){const first=Math.max(0,chart.offset);return clamp(state.snapEnabled&&!alt?snapTime(seconds,chart,state.division,state.span):seconds,first,chart.duration);}
 function snapX(x, alt=false){const count=Number($('x-snap').value);return clamp(count&&!alt?Math.round(x*count)/count:x,0,1);}
@@ -136,13 +181,12 @@ async function togglePlayback(){
 }
 function undo(){finishDrag();pause();if(!history.canUndo)return;replaceChart(history.undo(chart));restoreCachedAudio();state.selected.clear();syncSelection();}
 function redo(){finishDrag();pause();if(!history.canRedo)return;replaceChart(history.redo(chart));restoreCachedAudio();state.selected.clear();syncSelection();}
-function removeSelected(){if(!state.selected.size)return;commit(c=>{c.notes=c.notes.filter(n=>!state.selected.has(n.id));});state.selected.clear();syncSelection();}
-function copy(){clipboard=clone(selectedNotes());$('paste-selection').disabled=!clipboard.length;if(clipboard.length)toast(`已复制 ${clipboard.length} 个音符`);}
+function removeSelected(){if(!state.selected.size)return;commit(c=>deleteSelection(c,state.selected));state.selected.clear();syncSelection();}
+function copy(){finishDrag();clipboard=copySelection(chart,state.selected);$('paste-selection').disabled=!clipboard.notes.length;if(clipboard.notes.length)toast(`已复制 ${clipboard.notes.length} 个音符`);}
 function paste(){
-  if(!clipboard.length)return;
-  const origin=Math.min(...clipboard.map(n=>n.time));const target=snap(state.time)-chart.offset;
-  const pasted=clipboard.map(n=>({...clone(n),id:createId(),time:n.time-origin+target}));
-  if(commit(c=>{c.notes.push(...pasted);c.duration=Math.max(c.duration,...pasted.map(n=>n.time+c.offset+n.duration));})) {state.selected=new Set(pasted.map(n=>n.id));syncSelection();}
+  if(!clipboard.notes.length)return;
+  let ids=[];
+  if(commit(c=>ids=pasteSelection(c,clipboard,snap(state.time)))){state.selected=new Set(ids);state.selectedEventId=null;syncSelection();syncEvents();}
 }
 function download(blob,name){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);}
 function exportChart(){
@@ -187,19 +231,63 @@ for(const key of ['title','artist','charter','difficulty','level']) $('meta-'+ke
 for(const [id,key,multiplier]of [['bpm','bpm',1],['beats-per-bar','beatsPerBar',1],['offset','offset',.001],['duration','duration',1]]) $(id).addEventListener('change',e=>{pause();commit(c=>c[key]=Number(e.target.value)*multiplier);});
 $$('[data-tool]').forEach(b=>b.addEventListener('click',()=>setTool(b.dataset.tool)));
 $$('[data-view]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.view)));
-$$('[data-panel]').forEach(b=>b.addEventListener('click',()=>{const panel=b.dataset.panel;$$('[data-panel]').forEach(t=>{t.classList.toggle('active',t===b);t.setAttribute('aria-selected',String(t===b));});$('panel-chart').hidden=panel!=='chart';$('panel-scene').hidden=panel!=='scene';}));
 $$('[data-scene]').forEach(b=>b.addEventListener('click',()=>commit(c=>c.scene.preset=b.dataset.scene)));
 ['snap','snap-division','snap-span'].forEach(id=>$(id).addEventListener('change',updateSnap));
 $('zoom').addEventListener('input',e=>{state.zoom=Number(e.target.value);$('zoom-label').textContent=state.zoom+'%';});
-$('grid-toggle').addEventListener('click',()=>{state.grid=!state.grid;$('grid-toggle').classList.toggle('active',state.grid);});
+$('grid-toggle').addEventListener('click',()=>{state.grid=!state.grid;$('grid-toggle').setAttribute('aria-pressed',String(state.grid));});
 $('undo').addEventListener('click',undo);$('redo').addEventListener('click',redo);
 $('copy-selection').addEventListener('click',copy);$('paste-selection').addEventListener('click',paste);
-$('mirror-selection').addEventListener('click',()=>commit(c=>c.notes.forEach(n=>{if(state.selected.has(n.id))n.x=1-n.x;})));
+$('mirror-selection').addEventListener('click',()=>commit(c=>mirrorSelection(c,state.selected)));
 $('delete-selection').addEventListener('click',removeSelected);
 for(const [id,key]of [['note-time','time'],['note-x','x'],['note-duration','duration']]) $(id).addEventListener('change',e=>{
   const note=selectedNotes()[0];if(!note)return;
-  commit(c=>{const n=c.notes.find(n=>n.id===note.id);n[key]=Number(e.target.value)/(key==='x'?100:1)-(key==='time'?c.offset:0);});
+  const value=Number(e.target.value);
+  commit(c=>{
+    if(key==='duration')resizeHold(c.notes.find(n=>n.id===note.id),value);
+    else moveSelection(c,chart,new Set([note.id]),key==='time'?value-effectiveTime(note,chart):0,key==='x'?value/100-note.x:0);
+  });
 });
+for(const [id,key,scale]of [['note-opacity','opacity',100],['note-speed','speed',1]]) $(id).addEventListener('change',e=>{if(e.target.value!=='')commit(c=>c.notes.forEach(n=>{if(state.selected.has(n.id))n[key]=Number(e.target.value)/scale;}));});
+$('add-path-node').addEventListener('click',()=>addPathNode());
+$('delete-path-node').addEventListener('click',deletePathNode);
+for(const key of ['time','x','curve']) $('path-'+key).addEventListener('change',e=>{
+  const note=singleHold(),index=state.selectedNodeIndex;if(!note)return;
+  commit(c=>{const n=c.notes.find(n=>n.id===note.id);n.path[index][key]=key==='curve'?e.target.value:Number(e.target.value)/(key==='x'?100:1);if(index===0)n.x=n.path[0].x;});
+});
+$('add-event').addEventListener('click',()=>{
+  pause();const target=state.selected.size===1?[...state.selected][0]:chart.events.find(e=>e.id===state.selectedEventId)?.target||'all';const time=snap(state.time)-chart.offset;
+  const occupied=property=>chart.events.find(e=>e.target===target&&e.property===property&&(Math.abs(e.time-time)<1e-7||(e.time<time&&time<e.time+e.duration)));
+  const property=['speed','x','opacity'].find(p=>!occupied(p));
+  if(!property){selectEvent(occupied('speed').id);toast('此时刻已有三个属性事件');return;}
+  const existing=chart.events.filter(e=>e.target===target&&e.property===property).sort((a,b)=>a.time-b.time);
+  const next=existing.find(e=>e.time>time);
+  const duration=Math.max(0,Math.min(60/chart.bpm,chart.duration-chart.offset-time,next?next.time-time:Infinity));
+  const value=eventValue(chart,property,time+chart.offset,target),id=createId();
+  if(commit(c=>c.events.push({id,target,property,time,duration,from:value,to:value,curve:'linear'})))selectEvent(id);
+});
+$('delete-event').addEventListener('click',removeEvent);
+for(const key of ['property','target','time','duration','from','to','curve']) $('event-'+key).addEventListener('change',e=>{
+  const id=state.selectedEventId;if(!id)return;
+  commit(c=>{
+    const event=c.events.find(e=>e.id===id);
+    event[key]=['property','target','curve'].includes(key)?e.target.value:Number(e.target.value)/(['from','to'].includes(key)&&event.property!=='speed'?100:1)-(key==='time'?c.offset:0);
+    if(key==='property')event.from=event.to=event.property==='x'?0:1;
+  });
+});
+window.addEventListener('editor:action',e=>{
+  const {type,index,id}=e.detail;
+  if(type==='select-path-node'){state.selectedNodeIndex=index;syncSelection();}
+  if(type==='delete-path-node'){state.selectedNodeIndex=index;deletePathNode();}
+  if(type==='select-event')selectEvent(id);
+});
+// Commit a typed value once on blur or Enter, including browser paste/autofill input.
+for(const input of $$('input').filter(el=>/^(meta-|note-|path-|event-)/.test(el.id)||['bpm','beats-per-bar','offset','duration'].includes(el.id))){
+  let edited=false;
+  input.addEventListener('input',()=>edited=true);
+  input.addEventListener('change',()=>edited=false);
+  input.addEventListener('blur',()=>{if(edited){edited=false;input.dispatchEvent(new Event('change',{bubbles:true}));}});
+  input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();input.blur();}});
+}
 $('play').addEventListener('click',togglePlayback);
 $('rewind').addEventListener('click',()=>seek(0));$('back-to-start').addEventListener('click',()=>seek(0));
 $('playback-rate').addEventListener('change',e=>{audio.setRate(Number(e.target.value));lastPlayTime=state.time;});
@@ -221,34 +309,48 @@ $('show-shortcuts').addEventListener('click',()=>$('shortcuts-dialog').showModal
 $$('[data-close]').forEach(b=>b.addEventListener('click',()=>$(b.dataset.close).close()));
 $$('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close();}}));
 
-function eraseAt(e){const hit=renderer.hitTest(e.clientX,e.clientY,state);if(hit){chart.notes=chart.notes.filter(n=>n.id!==hit.note.id);state.selected.delete(hit.note.id);}}
+function eraseAt(e){const hit=renderer.hitTest(e.clientX,e.clientY,state);if(hit){deleteSelection(chart,new Set([hit.note.id]));state.selected.delete(hit.note.id);invalidateAnimationCache(chart);}}
 $('editor').addEventListener('contextmenu',e=>e.preventDefault());
 $('editor').addEventListener('pointerdown',e=>{
   if(e.button!==0&&e.button!==2)return;
   $('editor').focus();pause();
   if(state.view==='preview')return;
-  const point=renderer.pointToNote(e.clientX,e.clientY,state);if(!point.inside)return;
+  const point=renderer.pointToNote(e.clientX,e.clientY,state);
   const hit=renderer.hitTest(e.clientX,e.clientY,state);
+  const event=renderer.hitEvent(e.clientX,e.clientY,state);
   $('editor').setPointerCapture(e.pointerId);
+  if(event&&e.button===0){selectEvent(event.id);drag={kind:'event',before:clone(chart),point,eventId:event.id};return;}
+  state.selectedEventId=null;
   if(tool==='erase'||e.button===2){drag={kind:'erase',before:clone(chart)};eraseAt(e);return;}
   if(hit){
     if(e.shiftKey&&state.selected.has(hit.note.id)){state.selected.delete(hit.note.id);syncSelection();return;}
-    if(!state.selected.has(hit.note.id)){if(!e.shiftKey)state.selected.clear();state.selected.add(hit.note.id);}
-    drag={kind:hit.part==='tail'&&hit.note.duration>0?'resize':'move',before:clone(chart),point,notes:clone(selectedNotes()),noteId:hit.note.id};
-    syncSelection();return;
+    if(!state.selected.has(hit.note.id)){if(!e.shiftKey)state.selected.clear();state.selected.add(hit.note.id);state.selectedNodeIndex=0;}
+    const kind=hit.part==='node'&&state.selected.size===1?'node':hit.part==='tail'&&state.selected.size===1?'resize':'move';
+    if(kind==='node')state.selectedNodeIndex=hit.index;
+    drag={kind,before:clone(chart),point,notes:clone(selectedNotes()),noteId:hit.note.id,index:hit.index};
+    syncSelection();syncEvents();return;
   }
-  if(tool==='select'){
+  if(tool==='select'||e.shiftKey){
     const initial=e.shiftKey?new Set(state.selected):new Set();
     if(!e.shiftKey)state.selected.clear();
-    drag={kind:'marquee',point,initial};state.marquee={x1:point.canvasX,y1:point.canvasY,x2:point.canvasX,y2:point.canvasY};syncSelection();return;
+    drag={kind:'marquee',point,initial};state.marquee={x1:point.canvasX,y1:point.canvasY,x2:point.canvasX,y2:point.canvasY};syncSelection();syncEvents();return;
   }
+  if(!point.inside)return;
   const time=snap(point.time,e.altKey), x=snapX(point.x,e.altKey);
   if(time<Math.max(0,chart.offset)||time>chart.duration)return;
-  const n={id:createId(),time:time-chart.offset,x,duration:0};
+  const n={id:createId(),time:time-chart.offset,x,duration:0,opacity:1,speed:1,path:[]};
   if(tool==='tap'){
     if(chart.notes.some(other=>Math.abs(other.time-n.time)<1e-7&&Math.abs(other.x-n.x)<.015)){toast('此位置已有音符');return;}
     if(commit(c=>c.notes.push(n))){state.selected=new Set([n.id]);syncSelection();}
   }else{drag={kind:'hold',before:clone(chart),start:time,x};state.draft=n;}
+});
+$('editor').addEventListener('dblclick',e=>{
+  if(state.view!=='edit')return;
+  finishDrag();const hit=renderer.hitTest(e.clientX,e.clientY,state);
+  if(hit?.note.duration>0&&hit.part==='body'){
+    state.selected=new Set([hit.note.id]);const p=renderer.pointToNote(e.clientX,e.clientY,state);
+    addPathNode(snap(p.time,e.altKey)-effectiveTime(hit.note,chart),snapX(p.x,e.altKey));
+  }
 });
 $('editor').addEventListener('pointermove',e=>{
   const point=renderer.pointToNote(e.clientX,e.clientY,state);
@@ -261,23 +363,34 @@ $('editor').addEventListener('pointermove',e=>{
   }
   if(drag.kind==='marquee'){
     state.marquee.x2=point.canvasX;state.marquee.y2=point.canvasY;
-    const m=state.marquee,g=renderer.geometry();const x1=Math.min(m.x1,m.x2),x2=Math.max(m.x1,m.x2),y1=Math.min(m.y1,m.y2),y2=Math.max(m.y1,m.y2);
     state.selected=new Set(drag.initial);
-    chart.notes.forEach(n=>{const x=g.left+n.x*(g.right-g.left),y=g.hitY-(effectiveTime(n,chart)-state.time)*g.pxPerSecond;const tail=y-n.duration*g.pxPerSecond;if(x>=x1&&x<=x2&&y>=y1&&tail<=y2)state.selected.add(n.id);});syncSelection();return;
+    chart.notes.forEach(n=>{if(renderer.intersects(n,state.marquee,state))state.selected.add(n.id);});syncSelection();return;
+  }
+  if(drag.kind==='event'){
+    const original=drag.before.events.find(e=>e.id===drag.eventId),event=chart.events.find(e=>e.id===drag.eventId);
+    event.time=clamp(snap(original.time+chart.offset+point.time-drag.point.time,e.altKey)-chart.offset,Math.max(0,-chart.offset),chart.duration-chart.offset-event.duration);
+    invalidateAnimationCache(chart);syncEvents();return;
+  }
+  if(drag.kind==='node'){
+    const n=chart.notes.find(n=>n.id===drag.noteId),original=drag.notes.find(n=>n.id===drag.noteId),index=drag.index;
+    const node=n.path[index],source=original.path[index];
+    node.x=snapX(source.x+point.x-drag.point.x,e.altKey);
+    if(index===0)n.x=node.x;
+    else if(index===n.path.length-1){n.duration=clamp(snap(effectiveTime(n,chart)+source.time+point.time-drag.point.time,e.altKey)-effectiveTime(n,chart),n.path[index-1].time+.001,chart.duration-effectiveTime(n,chart));node.time=n.duration;}
+    else node.time=clamp(snap(effectiveTime(n,chart)+source.time+point.time-drag.point.time,e.altKey)-effectiveTime(n,chart),n.path[index-1].time+.001,n.path[index+1].time-.001);
+    syncSelection();return;
   }
   if(drag.kind==='resize'){
     const n=chart.notes.find(n=>n.id===drag.noteId),original=drag.notes.find(n=>n.id===drag.noteId);
     const tail=snap(effectiveTime(original,chart)+original.duration+point.time-drag.point.time,e.altKey);
-    n.duration=clamp(tail-effectiveTime(n,chart),.001,chart.duration-effectiveTime(n,chart));syncSelection();return;
+    n.path=clone(original.path);n.duration=original.duration;
+    resizeHold(n,clamp(tail-effectiveTime(n,chart),.001,chart.duration-effectiveTime(n,chart)));syncSelection();return;
   }
   if(drag.kind==='move'){
     const anchor=drag.notes.find(n=>n.id===drag.noteId);
-    let dt=snap(effectiveTime(anchor,chart)+point.time-drag.point.time,e.altKey)-effectiveTime(anchor,chart);
-    let dx=snapX(anchor.x+point.x-drag.point.x,e.altKey)-anchor.x;
-    const minT=Math.min(...drag.notes.map(n=>n.time)),maxT=Math.max(...drag.notes.map(n=>n.time+n.duration));
-    dt=clamp(dt,Math.max(0,-chart.offset)-minT,chart.duration-chart.offset-maxT);
-    dx=clamp(dx,-Math.min(...drag.notes.map(n=>n.x)),1-Math.max(...drag.notes.map(n=>n.x)));
-    for(const original of drag.notes){const n=chart.notes.find(n=>n.id===original.id);n.time=original.time+dt;n.x=original.x+dx;}syncSelection();
+    const dt=snap(effectiveTime(anchor,chart)+point.time-drag.point.time,e.altKey)-effectiveTime(anchor,chart);
+    const dx=snapX(anchor.x+point.x-drag.point.x,e.altKey)-anchor.x;
+    moveSelection(chart,drag.before,state.selected,dt,dx);invalidateAnimationCache(chart);syncSelection();
   }
 });
 $('editor').addEventListener('pointerup',e=>{finishDrag();if($('editor').hasPointerCapture(e.pointerId))$('editor').releasePointerCapture(e.pointerId);});
@@ -301,12 +414,12 @@ document.addEventListener('keydown',e=>{
   if(command){
     const key=e.key.toLowerCase();
     if(['z','y','a','c','v','x'].includes(key))e.preventDefault();
-    if(key==='z')e.shiftKey?redo():undo();else if(key==='y')redo();else if(key==='a'){state.selected=new Set(chart.notes.map(n=>n.id));syncSelection();}else if(key==='c')copy();else if(key==='v')paste();else if(key==='x'){copy();removeSelected();}return;
+    if(key==='z')e.shiftKey?redo():undo();else if(key==='y')redo();else if(key==='a'){state.selectedEventId=null;state.selected=new Set(chart.notes.map(n=>n.id));syncSelection();syncEvents();}else if(key==='c')copy();else if(key==='v')paste();else if(key==='x'){copy();removeSelected();}return;
   }
   if(e.code==='Space'){e.preventDefault();if(!e.repeat)togglePlayback();}
   else if(['1','2','3','4'].includes(e.key))setTool(['select','tap','hold','erase'][Number(e.key)-1]);
-  else if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();removeSelected();}
-  else if(e.key==='Escape'){if(drag?.before){chart=drag.before;state.chart=chart;}drag=null;state.draft=null;state.marquee=null;state.selected.clear();syncUI();}
+  else if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();state.selectedEventId?removeEvent():removeSelected();}
+  else if(e.key==='Escape'){if(drag?.before){chart=drag.before;state.chart=chart;}drag=null;state.draft=null;state.marquee=null;state.selected.clear();state.selectedEventId=null;syncUI();}
   else if(e.key==='Home'){e.preventDefault();seek(0);}
   else if(e.key==='ArrowUp'||e.key==='ArrowDown'){e.preventDefault();pause();seek(state.time+(e.key==='ArrowUp'?1:-1)*(e.shiftKey?60/chart.bpm:snapStep()));}
 });
@@ -325,7 +438,7 @@ function frame(now){
     const beat=Math.floor((state.time-chart.offset)*chart.bpm/60);
     if($('metronome').checked&&beat>lastBeat&&beat>=0)audio.tick(beat%(chart.beatsPerBar||4)===0);
     lastBeat=beat;
-    for(const n of chart.notes){const t=effectiveTime(n,chart);if(t>lastPlayTime&&t<=state.time){state.hits.push({x:n.x,time:t});if($('hitsound').checked)audio.hit();}}
+    for(const n of chart.notes){const t=effectiveTime(n,chart);if(t>lastPlayTime&&t<=state.time){state.hits.push({x:noteX(chart,n,t),time:t});if($('hitsound').checked)audio.hit();}}
     lastPlayTime=state.time;
   }
   state.hits=state.hits.filter(h=>state.time-h.time<.38&&state.time>=h.time);
@@ -333,6 +446,4 @@ function frame(now){
   if(now-frameTime>40){renderer.drawTimeline(state);syncTime();frameTime=now;}
   requestAnimationFrame(frame);
 }
-// Keep the selection inspector visible while the property list scrolls.
-document.querySelector('.sidebar').insertBefore($('selection-section'),document.querySelector('.sidebar-footer'));
-syncUI();updateSnap();audio.setVolume(.65);renderer.resize();requestAnimationFrame(frame);restoreAudio();
+syncUI();setTool('select');updateSnap();audio.setVolume(.65);renderer.resize();requestAnimationFrame(frame);restoreAudio();
