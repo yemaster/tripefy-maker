@@ -1,3 +1,4 @@
+import {normalizeBpmChanges, beatAtTime, timeAtBeat} from './timing.js';
 const FORMAT = "tripefy.chart";
 const VERSION = 1;
 const SCENES = new Set(["dusk", "night", "clear", "overcast"]);
@@ -148,6 +149,7 @@ export function validateChart(input) {
   if (!Array.isArray(source.notes)) throw new Error("音符列表必须是数组。");
   if (source.notes.length > 50000) throw new Error("单个谱面最多支持 50000 个音符。");
 
+  const bpmChanges = normalizeBpmChanges(source.bpmChanges,offset,duration);
   const ids = new Set();
   const notes = source.notes.map((value, index) => {
     const label = `第 ${index + 1} 个音符`;
@@ -246,6 +248,7 @@ export function validateChart(input) {
     scene: { preset: scene.preset },
     notes,
     events,
+    ...(bpmChanges.length ? {bpmChanges} : {}),
   };
 }
 
@@ -267,12 +270,12 @@ export function snapTime(seconds, chart, division = 4, span = 1) {
   }
   number(span, "细分跨度", 0);
   if (span === 0) throw new Error("细分跨度必须大于 0 拍。");
-  const step = 60 / chart.bpm * span / division;
+  const step = span / division;
   if (!Number.isFinite(step) || step <= 0) throw new Error("细分跨度超出可计算范围。");
   // Do not invent notes before chart time zero, even with a positive audio offset.
-  const firstStep = Math.max(0, Math.ceil(-chart.offset / step - 1e-9));
-  const tick = Math.max(firstStep, Math.round((seconds - chart.offset) / step));
-  const result = chart.offset + tick * step;
+  const firstStep = Math.max(0, Math.ceil(beatAtTime(chart,0) / step - 1e-9));
+  const tick = Math.max(firstStep, Math.round(beatAtTime(chart,seconds) / step));
+  const result = timeAtBeat(chart,tick * step);
   return Math.abs(result) < 1e-9 ? 0 : result;
 }
 
