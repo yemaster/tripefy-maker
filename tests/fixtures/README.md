@@ -9,3 +9,7 @@
 这些文件用于制谱器的回归验证，也可以直接导入界面检查。`timing-test.wav` 是合成测试数据，不是用户的歌曲文件。
 
 原生端验证脚本位于单独的 Tripefy 游戏项目。它检查音符、场景、偏移、音频结束后的时钟推进以及路径与事件兼容性；本仓库的 `npm test` 不依赖 Godot 或游戏目录。
+
+## 分组与预设导出样例
+
+`authoring-ui-export.chart.json` 来自 `tests/browser/authoring.mjs` 的实际下载：包含两个音符组、多层组位置事件、自定义预设库和 BPM 变速点。使用 `version: 2`，对应新版 Tripefy 播放器；本样例不含音频。

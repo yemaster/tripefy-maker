@@ -1,0 +1,308 @@
+{
+  "format": "tripefy.chart",
+  "version": 2,
+  "metadata": {
+    "title": "Editor study",
+    "artist": "Tripefy",
+    "charter": "Test",
+    "difficulty": "NORMAL",
+    "level": 3
+  },
+  "audio": "",
+  "bpm": 120,
+  "beatsPerBar": 4,
+  "offset": 0.375,
+  "duration": 40,
+  "scene": {
+    "preset": "dusk"
+  },
+  "notes": [
+    {
+      "id": "hold",
+      "type": "hold",
+      "time": 5,
+      "x": 0.2,
+      "duration": 3,
+      "opacity": 1,
+      "speed": 1,
+      "path": [
+        {
+          "time": 0,
+          "x": 0.2,
+          "curve": "smooth"
+        },
+        {
+          "time": 0.85,
+          "x": 0.75,
+          "curve": "smooth"
+        },
+        {
+          "time": 1.9,
+          "x": 0.3,
+          "curve": "smooth"
+        },
+        {
+          "time": 3,
+          "x": 0.65,
+          "curve": "smooth"
+        }
+      ]
+    },
+    {
+      "id": "tap",
+      "type": "tap",
+      "time": 12,
+      "x": 0.2,
+      "duration": 0,
+      "group": "43e71505-b705-40e1-9040-4fcf1760e436",
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "1bee8421-46c7-47b8-93e3-a02b2375bbba",
+      "type": "tap",
+      "time": 12,
+      "x": 0.2,
+      "duration": 0,
+      "group": "3ac90d5d-b39d-4847-bff1-f52dd74dd233",
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "heart",
+      "type": "heartap",
+      "time": 12,
+      "x": 0.8,
+      "duration": 0,
+      "group": "43e71505-b705-40e1-9040-4fcf1760e436",
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "f418a74f-e04a-4759-9aa9-d22e48235262",
+      "type": "heartap",
+      "time": 12,
+      "x": 0.8,
+      "duration": 0,
+      "group": "3ac90d5d-b39d-4847-bff1-f52dd74dd233",
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    },
+    {
+      "id": "drag",
+      "type": "drag",
+      "time": 13,
+      "x": 0.5,
+      "duration": 0,
+      "opacity": 1,
+      "speed": 1,
+      "path": []
+    }
+  ],
+  "events": [
+    {
+      "id": "global",
+      "target": "all",
+      "property": "speed",
+      "time": 1,
+      "duration": 2,
+      "from": 1,
+      "to": 1.5,
+      "curve": "easeInOut"
+    },
+    {
+      "id": "local",
+      "target": "hold",
+      "property": "speed",
+      "time": 6,
+      "duration": 1,
+      "from": 0.7,
+      "to": 1.6,
+      "curve": "easeOut"
+    },
+    {
+      "id": "5a58eb70-3322-4067-97bc-0f5c4629e98f",
+      "target": "3ac90d5d-b39d-4847-bff1-f52dd74dd233",
+      "property": "x",
+      "time": 8,
+      "duration": 1,
+      "from": -0.25,
+      "to": 0,
+      "curve": "easeInOut"
+    },
+    {
+      "id": "f3865a8e-c565-473f-ad76-55580cdb93e1",
+      "target": "3ac90d5d-b39d-4847-bff1-f52dd74dd233",
+      "property": "x",
+      "time": 8,
+      "duration": 1,
+      "layer": 1,
+      "from": -0.25,
+      "to": 0,
+      "curve": "easeInOut"
+    },
+    {
+      "id": "7b649151-9dca-4146-aada-e372d2e15ec5",
+      "target": "43e71505-b705-40e1-9040-4fcf1760e436",
+      "property": "x",
+      "time": 8,
+      "duration": 1,
+      "from": -0.25,
+      "to": 0,
+      "curve": "easeInOut"
+    },
+    {
+      "id": "53897105-39ff-499e-b88b-169ec35ec8eb",
+      "target": "43e71505-b705-40e1-9040-4fcf1760e436",
+      "property": "x",
+      "time": 8,
+      "duration": 1,
+      "layer": 1,
+      "from": -0.25,
+      "to": 0,
+      "curve": "easeInOut"
+    },
+    {
+      "id": "548bcacc-a386-4383-976e-274d58e59768",
+      "target": "1bee8421-46c7-47b8-93e3-a02b2375bbba",
+      "property": "opacity",
+      "time": 12,
+      "duration": 0.25,
+      "from": 1,
+      "to": 0.8,
+      "curve": "linear"
+    },
+    {
+      "id": "tap-event",
+      "target": "tap",
+      "property": "opacity",
+      "time": 12,
+      "duration": 0.25,
+      "from": 1,
+      "to": 0.8,
+      "curve": "linear"
+    },
+    {
+      "id": "c850c7f9-44ab-40eb-9367-4cbba7f5e16f",
+      "target": "3ac90d5d-b39d-4847-bff1-f52dd74dd233",
+      "property": "x",
+      "time": 16,
+      "duration": 1,
+      "from": -0.25,
+      "to": 0,
+      "curve": "easeInOut"
+    },
+    {
+      "id": "d84ee4e8-5e03-4590-bf05-0344817e4928",
+      "target": "3ac90d5d-b39d-4847-bff1-f52dd74dd233",
+      "property": "x",
+      "time": 16,
+      "duration": 1,
+      "layer": 1,
+      "from": -0.25,
+      "to": 0,
+      "curve": "easeInOut"
+    },
+    {
+      "id": "965aa194-bc06-4d1b-8da4-4731da1bf228",
+      "target": "43e71505-b705-40e1-9040-4fcf1760e436",
+      "property": "x",
+      "time": 16,
+      "duration": 1,
+      "from": -0.25,
+      "to": 0,
+      "curve": "easeInOut"
+    },
+    {
+      "id": "0a0b3f42-f657-41c2-946a-852597d3e3fe",
+      "target": "43e71505-b705-40e1-9040-4fcf1760e436",
+      "property": "x",
+      "time": 16,
+      "duration": 1,
+      "layer": 1,
+      "from": -0.25,
+      "to": 0,
+      "curve": "easeInOut"
+    }
+  ],
+  "groups": [
+    {
+      "id": "43e71505-b705-40e1-9040-4fcf1760e436",
+      "name": "Melody",
+      "hidden": false,
+      "locked": false,
+      "x": 0.05,
+      "opacity": 0.6,
+      "speed": 1.5
+    },
+    {
+      "id": "3ac90d5d-b39d-4847-bff1-f52dd74dd233",
+      "name": "Melody 副本",
+      "hidden": false,
+      "locked": false,
+      "x": 0.05,
+      "opacity": 0.6,
+      "speed": 1.5
+    }
+  ],
+  "bpmChanges": [
+    {
+      "time": 10,
+      "bpm": 180
+    }
+  ],
+  "animationPresets": [
+    {
+      "id": "ae9030dc-9c14-4c91-b116-3b081b14ab92",
+      "name": "双层进入",
+      "events": [
+        {
+          "property": "x",
+          "time": 0,
+          "duration": 1,
+          "from": -0.25,
+          "to": 0,
+          "curve": "easeInOut",
+          "layer": 0
+        },
+        {
+          "property": "x",
+          "time": 0,
+          "duration": 1,
+          "from": -0.25,
+          "to": 0,
+          "curve": "easeInOut",
+          "layer": 1
+        }
+      ]
+    },
+    {
+      "id": "6b1ca549-2d2f-4715-b686-249dfee2826c",
+      "name": "双层进入",
+      "events": [
+        {
+          "property": "x",
+          "time": 0,
+          "duration": 1,
+          "from": -0.25,
+          "to": 0,
+          "curve": "easeInOut",
+          "layer": 0
+        },
+        {
+          "property": "x",
+          "time": 0,
+          "duration": 1,
+          "from": -0.25,
+          "to": 0,
+          "curve": "easeInOut",
+          "layer": 1
+        }
+      ]
+    }
+  ]
+}
