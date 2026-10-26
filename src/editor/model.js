@@ -1,3 +1,4 @@
+import {normalizeGroups, normalizePresets} from './authoring-schema.js';
 import {normalizeBpmChanges, beatAtTime, timeAtBeat} from './timing.js';
 const FORMAT = "tripefy.chart";
 const VERSION = 1;
@@ -124,7 +125,7 @@ export function createDemoChart() {
 export function validateChart(input) {
   const source = object(input, "谱面");
   if (source.format !== FORMAT) throw new Error("文件不是 Tripefy 谱面格式。");
-  if (source.version !== VERSION) throw new Error("不支持此谱面版本，请使用版本 1。");
+  if (![1,2].includes(source.version)) throw new Error("不支持此谱面版本，请使用版本 1 或 2。");
   const metadata = object(source.metadata, "曲目信息");
   const title = string(metadata.title, "曲名");
   if (!title.trim()) throw new Error("曲名不能为空。");
@@ -149,8 +150,11 @@ export function validateChart(input) {
   if (!Array.isArray(source.notes)) throw new Error("音符列表必须是数组。");
   if (source.notes.length > 50000) throw new Error("单个谱面最多支持 50000 个音符。");
 
-  const bpmChanges = normalizeBpmChanges(source.bpmChanges,offset,duration);
   const ids = new Set();
+  const groups = normalizeGroups(source.groups);
+  const groupIds = new Set(groups.map(group => group.id));
+  const bpmChanges = normalizeBpmChanges(source.bpmChanges,offset,duration);
+  const animationPresets = normalizePresets(source.animationPresets);
   const notes = source.notes.map((value, index) => {
     const label = `第 ${index + 1} 个音符`;
     const note = object(value, label);
@@ -159,7 +163,7 @@ export function validateChart(input) {
       do { id = createId(); } while (ids.has(id));
     }
     if (typeof id !== "string") throw new Error(`${label}的 ID 必须是文字。`);
-    if (id === "all") throw new Error(`${label}不能使用保留 ID「all」。`);
+    if (id === "all" || groupIds.has(id)) throw new Error(`${label}不能使用保留 ID「all」或组 ID。`);
     if (ids.has(id)) throw new Error(`${label}的 ID 重复，请为每个音符使用不同 ID。`);
     ids.add(id);
     const time = number(note.time, `${label}的时间`, 0);
@@ -173,8 +177,10 @@ export function validateChart(input) {
     if (time + offset + length > duration + 1e-9) {
       throw new Error(`${label}超出谱面长度，请延长谱面或调整音符时间。`);
     }
+    if (note.group !== undefined && note.group !== '' && !groupIds.has(note.group)) throw new Error(`${label}引用的组不存在。`);
     return {
       id, type, time, x, duration: length,
+      ...(note.group ? {group: note.group} : {}),
       opacity: number(note.opacity === undefined ? 1 : note.opacity, `${label}的透明度`, 0, 1),
       speed: number(note.speed === undefined ? 1 : note.speed, `${label}的速度`, 0.1, 8),
       path: normalizePath(note.path, length, x, label),
@@ -198,7 +204,9 @@ export function validateChart(input) {
     if (eventIds.has(id)) throw new Error(`${label}的 ID 重复。`);
     eventIds.add(id);
     const target = string(event.target, `${label}的目标`);
-    if (target !== "all" && !ids.has(target)) throw new Error(`${label}引用的音符不存在。`);
+    if (target !== "all" && !ids.has(target) && !groupIds.has(target)) throw new Error(`${label}引用的音符或组不存在。`);
+    const layer = number(event.layer ?? 0,`${label}层`,0,3);
+    if (!Number.isInteger(layer)) throw new Error('事件层必须是整数。');
     const property = event.property;
     if (!Object.hasOwn(EVENT_RANGES, property)) throw new Error(`${label}的属性必须是 speed、x 或 opacity。`);
     const [minimum, maximum] = EVENT_RANGES[property];
@@ -209,11 +217,12 @@ export function validateChart(input) {
     }
     const normalized = {
       id, target, property, time, duration: length,
+      ...(layer ? {layer} : {}),
       from: number(event.from, `${label}的起始值`, minimum, maximum),
       to: number(event.to, `${label}的结束值`, minimum, maximum),
       curve: curve(event.curve, `${label}的缓动`),
     };
-    const key = JSON.stringify([target, property]);
+    const key = JSON.stringify([target, property, layer]);
     if (!channels.has(key)) channels.set(key, []);
     channels.get(key).push(normalized);
     return normalized;
@@ -232,7 +241,7 @@ export function validateChart(input) {
 
   return {
     format: FORMAT,
-    version: VERSION,
+    version: groups.length || events.some(event=>event.layer) ? 2 : VERSION,
     metadata: {
       title,
       artist: string(metadata.artist, "曲师", ""),
@@ -248,7 +257,9 @@ export function validateChart(input) {
     scene: { preset: scene.preset },
     notes,
     events,
+    ...(groups.length ? {groups} : {}),
     ...(bpmChanges.length ? {bpmChanges} : {}),
+    ...(animationPresets.length ? {animationPresets} : {}),
   };
 }
 

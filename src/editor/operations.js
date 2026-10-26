@@ -1,10 +1,13 @@
 import {createId, NOTE_TYPES} from './model.js';
 import {snapHorizontal, constrainHorizontalShift} from './lanes.js';
+import {completeGroupIds} from './groups.js';
 const copy = value => structuredClone(value);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 export function copySelection(chart, ids) {
-  return {notes:copy(chart.notes.filter(n=>ids.has(n.id))), events:copy((chart.events||[]).filter(e=>ids.has(e.target)))};
+  const notes=chart.notes.filter(n=>ids.has(n.id)),groups=(chart.groups||[]).filter(group=>notes.some(note=>note.group===group.id));
+  const targets=new Set([...ids,...groups.map(group=>group.id)]);
+  return {notes:copy(notes),events:copy((chart.events||[]).filter(e=>targets.has(e.target))),...(groups.length?{groups:copy(groups)}:{})};
 }
 
 export function pasteSelection(chart, clipboard, effectiveStart, {mirror = false} = {}) {
@@ -12,13 +15,17 @@ export function pasteSelection(chart, clipboard, effectiveStart, {mirror = false
   if(!Number.isFinite(effectiveStart)) throw new Error('粘贴时间必须是有效数字。');
   const origin=clipboard.notes.reduce((minimum,n)=>Math.min(minimum,n.time),Infinity);
   const selectedIds=new Set(clipboard.notes.map(n=>n.id));
+  for(const group of clipboard.groups||[])selectedIds.add(group.id);
   const attachedEvents=(clipboard.events||[]).filter(e=>selectedIds.has(e.target));
   const earliest=attachedEvents.reduce((minimum,e)=>Math.min(minimum,e.time),origin);
   const shift=Math.max(effectiveStart-chart.offset-origin,Math.max(0,-chart.offset)-earliest);
   const ids=new Map(clipboard.notes.map(n=>[n.id,createId()]));
-  const notes=clipboard.notes.map(n=>({...copy(n),id:ids.get(n.id),time:n.time+shift}));
+  for(const group of clipboard.groups||[])ids.set(group.id,createId());
+  const groups=(clipboard.groups||[]).map(group=>({...copy(group),id:ids.get(group.id),name:`${group.name.slice(0,77)} 副本`,hidden:false,locked:false}));
+  const notes=clipboard.notes.map(n=>({...copy(n),id:ids.get(n.id),...(n.group?{group:ids.get(n.group)||n.group}:{}),time:n.time+shift}));
   const events=attachedEvents.map(e=>({...copy(e),id:createId(),target:ids.get(e.target),time:e.time+shift}));
-  if(mirror) mirrorSelection({notes,events},new Set(notes.map(note=>note.id)));
+  if(mirror) mirrorSelection({notes,events,groups},new Set(notes.map(note=>note.id)));
+  if(groups.length)(chart.groups||=[]).push(...groups);
   chart.notes.push(...notes);(chart.events ||= []).push(...events);
   chart.duration=notes.reduce((end,n)=>Math.max(end,n.time+chart.offset+n.duration),chart.duration);
   chart.duration=events.reduce((end,e)=>Math.max(end,e.time+chart.offset+e.duration),chart.duration);
@@ -31,8 +38,19 @@ export function deleteSelection(chart, ids) {
 }
 
 export function mirrorSelection(chart, ids) {
+  const groupIds=new Set();
+  for(const group of [...chart.groups||[]]){
+    const members=chart.notes.filter(note=>note.group===group.id),selected=members.filter(note=>ids.has(note.id));
+    if(!selected.length)continue;
+    if(selected.length===members.length){groupIds.add(group.id);group.x=-(group.x||0);continue;}
+    // A shared group animation must not change unselected notes.
+    const next={...copy(group),id:createId(),name:`${group.name.slice(0,77)} 镜像`,x:-(group.x||0)};
+    chart.groups.push(next);for(const note of selected)note.group=next.id;
+    chart.events.push(...chart.events.filter(event=>event.target===group.id).map(event=>({...copy(event),id:createId(),target:next.id})));
+    groupIds.add(next.id);
+  }
   chart.notes.forEach(n=>{if(ids.has(n.id)){n.x=1-n.x;n.path?.forEach(p=>p.x=1-p.x);}});
-  chart.events?.forEach(e=>{if(ids.has(e.target)&&e.property==='x'){e.from=-e.from;e.to=-e.to;}});
+  chart.events?.forEach(e=>{if((ids.has(e.target)||groupIds.has(e.target))&&e.property==='x'){e.from=-e.from;e.to=-e.to;}});
 }
 
 export function alignSelection(chart, ids, mode) {
@@ -50,7 +68,8 @@ export function moveSelection(destination, snapshot, ids, dt, dx, horizontalStep
   const notes=snapshot.notes.filter(n=>ids.has(n.id)&&destinationNotes.has(n.id));
   if(!notes.length)return;
   const existingIds=new Set(notes.map(n=>n.id));
-  const events=(snapshot.events||[]).filter(e=>existingIds.has(e.target)&&destinationEvents.has(e.id));
+  const targets=new Set([...existingIds,...completeGroupIds(snapshot,existingIds)]);
+  const events=(snapshot.events||[]).filter(e=>targets.has(e.target)&&destinationEvents.has(e.id));
   let first=Infinity,last=-Infinity,left=Infinity,right=-Infinity;
   for(const n of notes){
     first=Math.min(first,n.time);last=Math.max(last,n.time+n.duration);

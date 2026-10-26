@@ -63,7 +63,7 @@ test("normalization generates IDs, sorts notes, accepts extra fields, and detach
 test("invalid chart values produce readable errors", () => {
   const invalidMutations = [
     chart => { chart.format = "other"; },
-    chart => { chart.version = 2; },
+    chart => { chart.version = 99; },
     chart => { chart.bpm = NaN; },
     chart => { chart.bpm = Infinity; },
     chart => { chart.bpm = "108"; },
