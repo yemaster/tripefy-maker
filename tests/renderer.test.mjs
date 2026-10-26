@@ -25,6 +25,21 @@ test('wide geometry uses available canvas space with room for edge notes and rul
   near(g.hitY,720);
 });
 
+test('K guides and note widths fit their cells and only affect editing',()=>{
+  const render=renderer(764,620),state=fixture({xSnap:'9k'});
+  render.pointToNote(200,300,state);
+  const g=render.geometry();assert.equal(g.lanes,9);
+  assert.ok(g.noteWidth<=(g.right-g.left)/9*.8);
+  const lines=[];
+  render.ctx={beginPath(){},moveTo(x,y){lines.push([x,y]);},lineTo(){},stroke(){}};
+  render._drawLanes(g);assert.equal(lines.length,8);
+  near(lines[0][0],g.left+(g.right-g.left)/9);
+  near(lines.at(-1)[0],g.left+(g.right-g.left)*8/9);
+  state.view='preview';render.pointToNote(200,300,state);
+  assert.equal(render.geometry().lanes,0);
+  assert.ok(render.geometry().noteWidth>g.noteWidth);
+});
+
 test('edit geometry retains linear chart time even with speed events and note speed',()=>{
   const render=renderer(),state=fixture();state.chart.notes[0].speed=3;
   state.chart.events=[{id:'s',target:'all',property:'speed',time:0,duration:0,from:1,to:4,curve:'linear'}];

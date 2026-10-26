@@ -1,5 +1,10 @@
+import {noteEditable,noteVisible,groupMap,targetEditable} from './groups.js';
+import {beatAtTime,timeAtBeat} from './timing.js';
+import {eventVisible} from './authoring.js';
 import {pathX, eventValue, noteX, noteOpacity, scrollDistance} from './animation.js';
 import {impactFrame, createImpactSprites, drawImpact, drawHoldContact} from './impact.js';
+import {pixelsPerSecond} from './navigation.js';
+import {laneCount, laneCenters} from './lanes.js';
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const TAU = Math.PI * 2;
 const PALETTES = {
@@ -40,6 +45,7 @@ export class Renderer {
     this.tw = 1;
     this.th = 1;
     this.zoom = 100;
+    this.lanes = 0;
     this.dpr = 1;
     this.impactSprites = new Map();
     this.resize();
@@ -74,13 +80,15 @@ export class Renderer {
       right: 82 + fieldWidth,
       top: 44,
       hitY: this.h * 0.80,
-      noteWidth: clamp(fieldWidth * 0.13, 32, 100),
-      pxPerSecond: 145 * this.zoom / 100,
+      noteWidth: Math.min(clamp(fieldWidth * 0.13, 32, 100), this.lanes ? fieldWidth / this.lanes * .8 : Infinity),
+      lanes: this.lanes,
+      pxPerSecond: pixelsPerSecond(this.zoom),
     };
   }
 
   pointToNote(clientX, clientY, state) {
     this.zoom = Number(state.zoom) || 100;
+    this.lanes = state.view === 'preview' ? 0 : laneCount(state.xSnap);
     const rect = this.canvas.getBoundingClientRect();
     const canvasX = clientX - rect.left;
     const canvasY = clientY - rect.top;
@@ -98,6 +106,7 @@ export class Renderer {
     const g = this.geometry();
     if (point.canvasY < g.top || point.canvasY > g.h) return null;
     for (const selectedPass of [true, false]) for (const note of state.chart.notes) {
+      if (!noteEditable(note,state)) continue;
       if (Boolean(state.selected?.has(note.id)) !== selectedPass) continue;
       const shape = this._noteGeometry(note, state, g);
       if (selectedPass && state.selected.size === 1 && note.duration > 0) {
@@ -148,7 +157,7 @@ export class Renderer {
       // Speed knots can lie between path nodes. Keep them in the tessellation
       // so even short events are represented by the displayed ribbon.
       for (const event of state.chart.events || []) {
-        if (event.property !== 'speed' || (event.target !== 'all' && event.target !== note.id)) continue;
+        if (event.property !== 'speed' || (event.target !== 'all' && event.target !== note.id && event.target !== note.group)) continue;
         for (const time of [event.time, event.time + event.duration / 2, event.time + event.duration]) {
           const relative = time - note.time;
           if (relative > 0 && relative < note.duration) boundaries.add(relative);
@@ -186,6 +195,7 @@ export class Renderer {
   }
 
   intersects(note, marquee, state) {
+    if(!noteEditable(note,state))return false;
     const g=this.geometry(), half=g.noteWidth/2+5;
     const left=Math.min(marquee.x1,marquee.x2),right=Math.max(marquee.x1,marquee.x2);
     const top=Math.min(marquee.y1,marquee.y2),bottom=Math.max(marquee.y1,marquee.y2);
@@ -204,16 +214,17 @@ export class Renderer {
   hitEvent(clientX,clientY,state) {
     const p=this.pointToNote(clientX,clientY,state),g=this.geometry();
     if(p.canvasX<g.left-24||p.canvasX>g.left-8)return null;
-    return (state.chart.events||[]).find(e=>Math.abs(p.canvasY-(g.hitY-(e.time+state.chart.offset-state.time)*g.pxPerSecond))<=8)||null;
+    return (state.chart.events||[]).find(e=>eventVisible(e,state)&&targetEditable(state.chart,e.target)&&Math.abs(p.canvasY-(g.hitY-(e.time+state.chart.offset-state.time)*g.pxPerSecond))<=8)||null;
   }
 
   _drawEvents(state,g) {
     const ctx=this.ctx;
     for(const e of state.chart.events||[]) {
+      if(!eventVisible(e,state))continue;
       const y=g.hitY-(e.time+state.chart.offset-state.time)*g.pxPerSecond;
       const end=y-e.duration*g.pxPerSecond;
       if(y<g.top||end>g.h)continue;
-      const selected=e.id===state.selectedEventId;
+      const selected=state.selectedEvents?.has(e.id)||e.id===state.selectedEventId;
       const color=selected?'#f5f5f5':'#a1a1aa';
       line(ctx,g.left-17,Math.max(g.top,end),g.left-17,y,color,selected?3:1.5);
       ctx.fillStyle=color;ctx.fillRect(g.left-21,y-4,8,8);
@@ -223,6 +234,7 @@ export class Renderer {
 
   draw(state) {
     this.zoom = Number(state.zoom) || 100;
+    this.lanes = state.view === 'preview' ? 0 : laneCount(state.xSnap);
     const g = this.geometry();
     const ctx = this.ctx;
     const preview = state.view === 'preview';
@@ -239,7 +251,7 @@ export class Renderer {
       line(ctx, g.left - 10.5, g.top, g.left - 10.5, g.h, '#2d2d32');
       line(ctx, g.right + 10.5, g.top, g.right + 10.5, g.h, '#2d2d32');
       this._drawRuler(state, g);
-      if (state.grid) this._drawGrid(state, g);
+      if (state.grid) { this._drawGrid(state, g); this._drawLanes(g); }
     }
     ctx.save();
     ctx.beginPath();
@@ -249,7 +261,7 @@ export class Renderer {
     line(ctx, g.left - 10, g.hitY + 0.5, g.right + 10, g.hitY + 0.5,
       preview ? (light ? 'rgba(67,86,83,.7)' : 'rgba(240,239,216,.8)') : '#a1a1aa', 1.5);
     this._drawChords(state, g, light);
-    const notes = state.chart.notes;
+    const notes = state.chart.notes.filter(note=>noteVisible(note,state));
     for (const note of notes) {
       if (!state.selected?.has(note.id)) this._drawNote(note, state, g, light, false);
     }
@@ -277,13 +289,20 @@ export class Renderer {
       ctx.fillStyle = '#81818b';
       ctx.font = `10px ${this.font}`;
       ctx.textAlign = 'center';
-      const positions = [0, .25, .5, .75, 1];
+      const positions = g.lanes ? laneCenters(g.lanes) : [0, .25, .5, .75, 1];
       for (const [index, position] of positions.entries()) {
-        ctx.fillText(`${position * 100}`, g.left + position * (g.right - g.left), 26);
+        ctx.fillText(g.lanes ? String(index + 1) : `${position * 100}`, g.left + position * (g.right - g.left), 26);
       }
       ctx.textAlign = 'left';
       ctx.fillStyle = '#92929c';
       ctx.font = `10px ${this.font}`;
+    }
+  }
+
+  _drawLanes(g) {
+    for (let index = 1; index < g.lanes; index++) {
+      const x = g.left + (g.right - g.left) * index / g.lanes;
+      line(this.ctx, x, g.top, x, g.h, 'rgba(161,161,170,.16)');
     }
   }
 
@@ -304,23 +323,23 @@ export class Renderer {
 
   _drawGrid(state, g) {
     const ctx = this.ctx;
-    const beat = 60 / state.chart.bpm;
+
     const beatsPerBar = state.chart.beatsPerBar || 4;
     const division = Math.max(1, state.division || 4);
     const span = Math.max(0.01, state.span || 1);
-    const step = beat * span / division;
+    const step = span / division;
     const start = Math.max(0, state.time - (g.h - g.hitY) / g.pxPerSecond);
     const end = Math.min(state.chart.duration, state.time + (g.hitY - g.top) / g.pxPerSecond);
-    const begin = Math.max(0, Math.ceil((start - state.chart.offset) / step));
-    const finish = Math.ceil((end - state.chart.offset) / step);
+    const begin = Math.max(0, Math.ceil(beatAtTime(state.chart,start) / step));
+    const finish = Math.ceil(beatAtTime(state.chart,end) / step);
     ctx.font = `10px ${this.font}`;
     ctx.textAlign = 'right';
     for (let tick = begin; tick <= finish && tick - begin < 2000; tick++) {
       const b = tick * span / division;
       const major = Math.abs(b / beatsPerBar - Math.round(b / beatsPerBar)) < 1e-6;
       const whole = Math.abs(b - Math.round(b)) < 1e-6;
-      if (!whole && step * g.pxPerSecond < 5) continue;
-      const y = Math.round(g.hitY - (state.chart.offset + tick * step - state.time) * g.pxPerSecond) + .5;
+      if (!whole && (timeAtBeat(state.chart,b+step)-timeAtBeat(state.chart,b)) * g.pxPerSecond < 5) continue;
+      const y = Math.round(g.hitY - (timeAtBeat(state.chart,b) - state.time) * g.pxPerSecond) + .5;
       line(ctx, g.left - 10, y, g.right + 10, y,
         major ? 'rgba(180,180,185,.24)' : whole ? 'rgba(180,180,185,.12)' : 'rgba(180,180,185,.045)');
       if (whole) {
@@ -333,6 +352,7 @@ export class Renderer {
   _drawChords(state, g, light) {
     const groups = new Map();
     for (const note of state.chart.notes) {
+      if(!noteVisible(note,state))continue;
       const effective = note.time + state.chart.offset;
       if (state.view === 'preview' && effective < state.time - .03) continue;
       const shape = this._noteGeometry(note,state,g);
@@ -365,7 +385,7 @@ export class Renderer {
     const fade = ghost ? .42 : preview ? clamp(1 - Math.max(0, passed) / .22, 0, 1) : shape.end < state.time ? .46 : 1;
     const opacity = preview ? noteOpacity(state.chart,note,state.time) : Math.max(.22,note.opacity ?? 1);
     ctx.save();
-    ctx.globalAlpha = fade * opacity;
+    ctx.globalAlpha = fade * opacity * (!preview && groupMap(state.chart).get(note.group)?.locked ? .45 : 1);
     const width = g.noteWidth;
     const height = clamp(width * .12, 8, 12);
     const x = shape.x - width / 2;
@@ -498,6 +518,11 @@ export class Renderer {
     ctx.clearRect(0, 0, w, h);
     ctx.lineCap = 'round';
     line(ctx, left, h / 2, right, h / 2, '#3f3f46', 3);
+    if(state.loop?.enabled){
+      const a=left+(right-left)*state.loop.start/state.chart.duration,b=left+(right-left)*state.loop.end/state.chart.duration;
+      line(ctx,a,h/2,b,h/2,'#d4d4d8',5);
+      for(const x of [a,b])line(ctx,x,3,x,h-3,'#a1a1aa',1);
+    }
     if (progress > 0) line(ctx, left, h / 2, cursor, h / 2, '#a1a1aa', 3);
     ctx.fillStyle = '#e4e4e7';
     ctx.beginPath(); ctx.arc(cursor, h / 2, 4.5, 0, TAU); ctx.fill();
