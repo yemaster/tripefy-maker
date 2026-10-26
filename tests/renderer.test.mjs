@@ -84,3 +84,52 @@ test('preview path horizontal events use current playback time for the whole bod
   near(shape.tailX,g.left+.5*(g.right-g.left));
   const bend=render._pathPoint(note,1.5,state,g);near(bend.x,g.left+.9*(g.right-g.left));
 });
+
+function distanceToSegment(point, a, b) {
+  const dx=b.x-a.x,dy=b.y-a.y,length=dx*dx+dy*dy;
+  const u=length?Math.max(0,Math.min(1,((point.x-a.x)*dx+(point.y-a.y)*dy)/length)):0;
+  return Math.hypot(point.x-a.x-u*dx,point.y-a.y-u*dy);
+}
+
+test('short wide S bends are sampled between their midpoint and endpoints',()=>{
+  const render=renderer(1800,900),state=fixture(),note=state.chart.notes[0],g=render.geometry();
+  note.duration=.06;note.path=[{time:0,x:.1,curve:'linear'},{time:.06,x:.9,curve:'easeInOut'}];
+  const points=render.pathPoints(note,state,g);
+  assert.ok(points.length>8,'a short S bend must not collapse into a diagonal');
+  for(let i=0;i<=2000;i++){
+    const actual=render._pathPoint(note,note.duration*i/2000,state,g);
+    const error=Math.min(...points.slice(1).map((b,j)=>distanceToSegment(actual,points[j],b)));
+    assert.ok(error<.5,`ribbon deviated ${error}px from authored curve`);
+  }
+});
+
+test('playing through a Hold clips the head without moving remaining sample times',()=>{
+  const render=renderer(),state=fixture({view:'preview',time:2.713}),note=state.chart.notes[0],g=render.geometry();
+  const times=()=>render.pathPoints(note,state,g).map(p=>(g.hitY-p.y)/g.pxPerSecond+state.time-note.time-state.chart.offset);
+  const before=times();state.time+=.007;
+  const after=times(),start=state.time-note.time-state.chart.offset;
+  const retained=before.slice(1).filter(t=>t>start+1e-9);
+  assert.equal(after.length,retained.length+1);
+  after.slice(1).forEach((time,i)=>near(time,retained[i]));
+  near(after[0],start);near(after.at(-1),note.duration);
+  assert.equal(new Set(after.map(t=>t.toFixed(9))).size,after.length,'no duplicate tail');
+});
+
+test('smooth ribbons remain accurate with narrow speed events and horizontal clamping',()=>{
+  const render=renderer(1800,1000),state=fixture({view:'preview',time:2.5}),g=render.geometry();
+  const note=state.chart.notes[0];note.speed=2;
+  note.path=[{time:0,x:.1,curve:'smooth'},{time:.4,x:.8,curve:'smooth'},{time:1.9,x:.9,curve:'smooth'},{time:3,x:.2,curve:'smooth'}];
+  state.chart.events=[
+    {id:'s',target:note.id,property:'speed',time:2.413,duration:.019,from:.1,to:8,curve:'easeInOut'},
+    {id:'x',target:'all',property:'x',time:0,duration:0,from:0,to:.15,curve:'linear'},
+  ];
+  const points=render.pathPoints(note,state,g),start=state.time-note.time-state.chart.offset;
+  let segment=1;
+  for(let i=0;i<=4000;i++){
+    const t=start+(note.duration-start)*i/4000,actual=render._pathPoint(note,t,state,g);
+    while(segment<points.length-1&&points[segment].y>actual.y)segment++;
+    const error=distanceToSegment(actual,points[segment-1],points[segment]);
+    assert.ok(error<.5,`speed-integrated ribbon deviated ${error}px at ${t}s`);
+  }
+  near(points[0].y,g.hitY);
+});

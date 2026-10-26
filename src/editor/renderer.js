@@ -135,21 +135,53 @@ export class Renderer {
   _pathPoint(note, relative, state, g) {
     const endpoint = note.time + state.chart.offset + relative;
     const preview = state.view === 'preview';
-    const x = preview ? clamp(pathX(note, relative) + eventValue(state.chart,'x',state.time) + (note.id ? eventValue(state.chart,'x',state.time,note.id) : 0),0,1) : pathX(note,relative);
+    const x = preview ? noteX(state.chart,note,state.time,relative) : pathX(note,relative);
     const distance = preview ? scrollDistance(state.chart,note,state.time,endpoint) : endpoint - state.time;
     return {x:g.left+x*(g.right-g.left),y:g.hitY-distance*g.pxPerSecond};
   }
 
   pathPoints(note, state, g = this.geometry()) {
     const start = state.view === 'preview' ? clamp(state.time - note.time - state.chart.offset,0,note.duration) : 0;
-    const points = [];
-    const boundaries = [start,...(note.path || []).map(p=>p.time).filter(t=>t>start),note.duration];
-    for(let i=1;i<boundaries.length;i++) {
-      const a=boundaries[i-1],b=boundaries[i];
-      const steps=Math.max(1,Math.min(80,Math.ceil((b-a)*g.pxPerSecond/12)));
-      for(let j=0;j<steps;j++) points.push(this._pathPoint(note,a+(b-a)*j/steps,state,g));
+    const points = [this._pathPoint(note, start, state, g)];
+    const boundaries = new Set([0, note.duration, ...(note.path || []).map(p => p.time)]);
+    if (state.view === 'preview') {
+      // Speed knots can lie between path nodes. Keep them in the tessellation
+      // so even short events are represented by the displayed ribbon.
+      for (const event of state.chart.events || []) {
+        if (event.property !== 'speed' || (event.target !== 'all' && event.target !== note.id)) continue;
+        for (const time of [event.time, event.time + event.duration / 2, event.time + event.duration]) {
+          const relative = time - note.time;
+          if (relative > 0 && relative < note.duration) boundaries.add(relative);
+        }
+      }
     }
-    points.push(this._pathPoint(note,note.duration,state,g));
+    const stops = [...boundaries].sort((a, b) => a - b);
+    const cache = new Map();
+    const pointAt = time => {
+      if (!cache.has(time)) cache.set(time, this._pathPoint(note, time, state, g));
+      return cache.get(time);
+    };
+    const subdivide = (a, b, depth = 0) => {
+      if (b <= start) return;
+      const left = pointAt(a), right = pointAt(b);
+      let error = 0;
+      // The midpoint of an S bend can lie exactly on its chord.
+      for (const u of [.25, .5, .75]) {
+        const p = pointAt(a + (b - a) * u);
+        error = Math.max(error, Math.hypot(p.x - left.x - (right.x - left.x) * u,
+          p.y - left.y - (right.y - left.y) * u));
+      }
+      if (error > .25 && depth < 12) {
+        const middle = (a + b) / 2;
+        subdivide(a, middle, depth + 1);
+        subdivide(middle, b, depth + 1);
+      } else {
+        points.push(right);
+      }
+    };
+    // Anchor subdivisions to authored intervals. Advancing the held head only
+    // clips existing samples instead of redistributing the remaining vertices.
+    for (let i = 1; i < stops.length; i++) subdivide(stops[i - 1], stops[i]);
     return points;
   }
 
@@ -225,7 +257,7 @@ export class Renderer {
       if (state.selected?.has(note.id)) this._drawNote(note, state, g, light, true);
     }
     if (!preview && state.hover && !state.draft) {
-      this._drawNote({ x: state.hover.x, time: state.hover.time - state.chart.offset, duration: 0 }, state, g, false, false, true);
+      this._drawNote({ x: state.hover.x, type: state.hover.type, time: state.hover.time - state.chart.offset, duration: 0 }, state, g, false, false, true);
       const y = g.hitY - (state.hover.time - state.time) * g.pxPerSecond;
       line(ctx, g.left, y, g.right, y, 'rgba(200,184,137,.22)');
     }
@@ -245,7 +277,8 @@ export class Renderer {
       ctx.fillStyle = '#81818b';
       ctx.font = `10px ${this.font}`;
       ctx.textAlign = 'center';
-      for (const position of [0, .25, .5, .75, 1]) {
+      const positions = [0, .25, .5, .75, 1];
+      for (const [index, position] of positions.entries()) {
         ctx.fillText(`${position * 100}`, g.left + position * (g.right - g.left), 26);
       }
       ctx.textAlign = 'left';
@@ -347,10 +380,16 @@ export class Renderer {
       ctx.fillStyle=light?'rgba(61,89,80,.25)':'rgba(224,234,213,.20)';
       ctx.fill();
       ctx.strokeStyle=selected&&!preview?'#a3a3a3':light?'rgba(61,89,80,.4)':'rgba(223,233,214,.30)';
-      ctx.lineWidth=1;ctx.stroke();
+      ctx.lineWidth=1;ctx.lineJoin='round';ctx.stroke();
       this._drawJade(shape.tailX-width/2,tail-height/2,width,height,light);
+      for (const node of (note.path || []).slice(1, -1)) {
+        if (preview && shape.start + node.time < state.time) continue;
+        const p = this._pathPoint(note, node.time, state, g);
+        this._drawJade(p.x-width/2,p.y-height*.36,width,height*.72,light);
+        line(ctx,p.x-width/2+2,p.y-height*.36-1,p.x+width/2-2,p.y-height*.36-1,light?'rgba(52,92,80,.65)':'rgba(251,255,239,.9)',1.2);
+      }
     }
-    this._drawJade(x,head-height/2,width,height,light);
+    this._drawJade(x,head-height/2,width,height,light,note.type);
     if(selected&&!preview) {
       ctx.globalAlpha=1;
       ctx.strokeStyle='#fafafa';ctx.lineWidth=1.5;
@@ -367,12 +406,18 @@ export class Renderer {
     ctx.restore();
   }
 
-  _drawJade(x, y, width, height, dark) {
+  _drawJade(x, y, width, height, dark, type = 'tap') {
     const ctx = this.ctx;
+    if (type === 'drag') { y += height * .19; height *= .62; }
     const fill = ctx.createLinearGradient(0, y, 0, y + height);
-    fill.addColorStop(0, dark ? '#5b7568' : '#f4f6e9');
-    fill.addColorStop(.42, dark ? '#3b584e' : '#e1e9d7');
-    fill.addColorStop(1, dark ? '#29443e' : '#b7c9b8');
+    const colors = type === 'heartap'
+      ? (dark ? ['#897498', '#695577', '#4e3e63'] : ['#f5efff', '#ded1f2', '#b6a0d2'])
+      : type === 'drag'
+        ? (dark ? ['#6b9197', '#456a72', '#30535e'] : ['#e4f7f7', '#bcdfe1', '#87b7bd'])
+        : (dark ? ['#5b7568', '#3b584e', '#29443e'] : ['#f4f6e9', '#e1e9d7', '#b7c9b8']);
+    fill.addColorStop(0, colors[0]);
+    fill.addColorStop(.42, colors[1]);
+    fill.addColorStop(1, colors[2]);
     ctx.fillStyle = fill;
     roundedRect(ctx, x, y, width, height, 1.6);
     ctx.fill();

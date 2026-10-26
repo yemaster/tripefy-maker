@@ -141,7 +141,7 @@ test("distance is signed, includes base speed, and integrates both event channel
   near(scrollDistance(chart, chart.notes[0], 1.5, 2.5), 8);
 });
 
-test("Gauss segments integrate eased speed products exactly across midpoints", () => {
+test("compiled speed integrals remain exact across eased midpoints", () => {
   const chart = chartWith([note()], [
     event({ duration: 1, from: 1, to: 2, curve: "easeIn" }),
     event({ id: "local", target: "n", duration: 1, from: 1, to: 2, curve: "easeIn" }),

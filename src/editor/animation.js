@@ -19,26 +19,30 @@ export function invalidateAnimationCache(chart) {
 
 function indexFor(chart) {
   const events = chart.events || EMPTY;
+  const groups = chart.groups || EMPTY;
   let index = indexes.get(chart);
-  if (index?.events === events && index.length === events.length) return index;
+  if (index?.events === events && index.length === events.length && index.groupsSource === groups) return index;
   const targets = new Map();
   for (const event of events) {
     let properties = targets.get(event.target);
     if (!properties) targets.set(event.target, properties = new Map());
-    let channel = properties.get(event.property);
-    if (!channel) properties.set(event.property, channel = []);
+    let layers = properties.get(event.property);
+    if (!layers) properties.set(event.property, layers = new Map());
+    let channel = layers.get(event.layer || 0);
+    if (!channel) layers.set(event.layer || 0, channel = []);
     channel.push(event);
   }
   for (const properties of targets.values()) {
-    for (const channel of properties.values()) channel.sort((a, b) => a.time - b.time);
+    for (const layers of properties.values()) for (const channel of layers.values()) channel.sort((a, b) => a.time - b.time);
   }
-  index = { events, length: events.length, targets };
+  index = { events, length: events.length, targets, groupsSource: groups, groups: new Map(groups.map(group=>[group.id,group])), routes:new WeakMap(),speedTables: new Map(), fromTime: NaN, fromValues: new Map() };
   indexes.set(chart, index);
   return index;
 }
 
-function channelFor(chart, property, target) {
-  return indexFor(chart).targets.get(target)?.get(property) || EMPTY;
+function channelsFor(chart, property, target) {
+  const layers = indexFor(chart).targets.get(target)?.get(property);
+  return layers ? [...layers.values()] : EMPTY;
 }
 
 /** First item whose start is strictly later than time. */
@@ -113,119 +117,121 @@ export function pathX(note, relativeTime) {
 }
 
 /** absoluteTime is playback seconds, including chart.offset. */
-export function eventValue(chart, property, absoluteTime, target = "all") {
+export function eventValue(chart, property, absoluteTime, target = "all", layer = null) {
   if (!Object.hasOwn(DEFAULTS, property)) throw new Error("未知事件属性。");
-  return channelValue(channelFor(chart, property, target), property, absoluteTime - (chart.offset || 0));
+  const channels = layer === null ? channelsFor(chart,property,target) : [indexFor(chart).targets.get(target)?.get(property)?.get(layer) || EMPTY];
+  return channels.reduce((value,channel)=>property==='x' ? value+channelValue(channel,property,absoluteTime-(chart.offset||0))
+    : value*channelValue(channel,property,absoluteTime-(chart.offset||0)),DEFAULTS[property]);
 }
 
-function noteChannel(chart, note, property) {
-  // "all" is the reserved global target, so never apply that channel twice.
-  return note.id && note.id !== "all" ? channelFor(chart, property, note.id) : EMPTY;
+function routeFor(chart,note) {
+  const index=indexFor(chart);let route=index.routes.get(note);
+  if(!route){
+    const targets=[...new Set(['all',note.group,note.id].filter(Boolean))];
+    const channels=Object.fromEntries(['x','opacity','speed'].map(property=>[property,targets.flatMap(target=>channelsFor(chart,property,target))]));
+    route={group:index.groups.get(note.group),channels,speedKey:JSON.stringify(targets.filter(target=>index.targets.get(target)?.has('speed')))};
+    index.routes.set(note,route);
+  }
+  return route;
+}
+function noteValue(chart,note,property,time) {
+  return routeFor(chart,note).channels[property].reduce((value,channel)=>property==='x' ? value+channelValue(channel,property,time-(chart.offset||0))
+    : value*channelValue(channel,property,time-(chart.offset||0)),DEFAULTS[property]);
 }
 
-export function noteX(chart, note, absoluteTime) {
-  const relativeTime = absoluteTime - (chart.offset || 0);
-  const base = pathX(note, relativeTime - note.time);
-  return clamp(base + channelValue(channelFor(chart, "x", "all"), "x", relativeTime)
-    + channelValue(noteChannel(chart, note, "x"), "x", relativeTime));
+export function noteX(chart, note, absoluteTime, relativeTime = absoluteTime - (chart.offset || 0) - note.time) {
+  const group = routeFor(chart,note).group;
+  return clamp(pathX(note,relativeTime) + (group?.x||0) + noteValue(chart,note,'x',absoluteTime));
 }
 
 export function noteOpacity(chart, note, absoluteTime) {
-  const relativeTime = absoluteTime - (chart.offset || 0);
-  return clamp((note.opacity ?? 1) * channelValue(channelFor(chart, "opacity", "all"), "opacity", relativeTime)
-    * channelValue(noteChannel(chart, note, "opacity"), "opacity", relativeTime));
+  const group = routeFor(chart,note).group;
+  return clamp((note.opacity ?? 1) * (group?.opacity??1) * noteValue(chart,note,'opacity',absoluteTime));
 }
 
-function addBoundaries(channel, from, to, boundaries) {
-  let index = Math.max(0, upperBound(channel, from) - 1);
-  for (; index < channel.length && channel[index].time < to; index += 1) {
-    const event = channel[index];
-    if (event.time > from) boundaries.push(event.time);
-    const end = event.time + event.duration;
-    if (end > from && end < to) boundaries.push(end);
-    if (event.curve === "easeInOut") {
-      const midpoint = event.time + event.duration / 2;
-      if (midpoint > from && midpoint < to) boundaries.push(midpoint);
+// Match the game's exact polynomial integral. Compile at most once per speed
+// channel after an edit, rather than integrating every vertex on every frame.
+function speedPolynomial(channel, start, end) {
+  const midpoint = (start + end) / 2;
+  const event = channel[upperBound(channel, midpoint) - 1];
+  if (!event) return [1, 0, 0];
+  if (event.duration <= 0 || midpoint >= event.time + event.duration) return [event.to, 0, 0];
+  const begin = (start - event.time) / event.duration;
+  const step = (end - start) / event.duration;
+  let constant = begin, linear = step, quadratic = 0;
+  if (event.curve === 'easeIn') {
+    constant = begin * begin; linear = 2 * begin * step; quadratic = step * step;
+  } else if (event.curve === 'easeOut') {
+    constant = begin * (2 - begin); linear = 2 * step * (1 - begin); quadratic = -step * step;
+  } else if (event.curve === 'easeInOut') {
+    if (midpoint < event.time + event.duration / 2) {
+      constant = 2 * begin * begin; linear = 4 * begin * step; quadratic = 2 * step * step;
+    } else {
+      constant = -1 + 4 * begin - 2 * begin * begin;
+      linear = 4 * step * (1 - begin); quadratic = -2 * step * step;
     }
   }
+  const delta = event.to - event.from;
+  return [event.from + delta * constant, delta * linear, delta * quadratic];
 }
 
-function integrate(valueAt, from, to) {
-  const half = (to - from) / 2;
-  if (half <= 0) return 0;
-  const center = from + half;
-  const node = Math.sqrt(3 / 5);
-  return half * (5 / 9 * valueAt(center - half * node)
-    + 8 / 9 * valueAt(center) + 5 / 9 * valueAt(center + half * node));
-}
-
-function globalPrimitive(chart, channel) {
-  const index = indexFor(chart);
-  if (index.globalSpeedPrimitive) return index.globalSpeedPrimitive;
-  const boundaries = [];
-  for (const event of channel) {
-    boundaries.push(event.time, event.time + event.duration);
-    if (event.curve === "easeInOut") boundaries.push(event.time + event.duration / 2);
+function speedPrimitive(channels) {
+  const boundaries = new Set();
+  for (const channel of channels) for (const event of channel) {
+    boundaries.add(event.time); boundaries.add(event.time + event.duration);
+    if (event.curve === 'easeInOut') boundaries.add(event.time + event.duration / 2);
   }
-  boundaries.sort((a, b) => a - b);
-  const times = boundaries.filter((time, i) => i === 0 || time !== boundaries[i - 1]);
-  const values = [0];
-  const valueAt = time => channelValue(channel, "speed", time);
+  const times = [...boundaries].sort((a, b) => a - b);
+  const values = [0], polynomials = [];
   let correction = 0;
-  for (let i = 1; i < times.length; i += 1) {
-    const adjusted = integrate(valueAt, times[i - 1], times[i]) - correction;
-    const next = values[i - 1] + adjusted;
-    correction = (next - values[i - 1]) - adjusted;
-    values.push(next);
+  for (let i = 1; i < times.length; i++) {
+    const span = times[i] - times[i - 1];
+    let product = [1];
+    for (const channel of channels) {
+      const coefficients = speedPolynomial(channel,times[i-1],times[i]);
+      const next = Array(product.length+2).fill(0);
+      for(let a=0;a<product.length;a++) for(let b=0;b<3;b++)next[a+b]+=product[a]*coefficients[b];
+      product=next;
+    }
+    const p = product.map((coefficient,power)=>coefficient*span/(power+1));
+    polynomials.push(p);
+    const adjusted = p.reduce((sum, coefficient) => sum + coefficient, 0) - correction;
+    const total = values[i - 1] + adjusted;
+    correction = (total - values[i - 1]) - adjusted;
+    values.push(total);
   }
-  const primitive = time => {
+  const last = times.length - 1;
+  const finalSpeed = channels.reduce((value,channel)=>value*channelValue(channel,'speed',times[last]),1);
+  return time => {
     if (time <= times[0]) return time - times[0];
-    const last = times.length - 1;
-    if (time >= times[last]) return values[last] + (time - times[last]) * valueAt(times[last]);
-    let low = 0;
-    let high = last;
+    if (time >= times[last]) return values[last] + (time - times[last]) * finalSpeed;
+    let low = 0, high = last;
     while (low < high) {
       const middle = Math.ceil((low + high) / 2);
       if (times[middle] <= time) low = middle;
       else high = middle - 1;
     }
-    return values[low] + integrate(valueAt, times[low], time);
+    const t = (time - times[low]) / (times[low + 1] - times[low]);
+    const p = polynomials[low];
+    let value=0;for(let i=p.length-1;i>=0;i--)value=t*(p[i]+value);
+    return values[low]+value;
   };
-  index.globalSpeedPrimitive = primitive;
-  return primitive;
 }
 
 /** Signed integral of global speed × per-note event speed × the note's base speed, in seconds. */
 export function scrollDistance(chart, note, fromAbsolute, toAbsolute) {
   if (fromAbsolute === toAbsolute) return 0;
-  const direction = toAbsolute > fromAbsolute ? 1 : -1;
   const offset = chart.offset || 0;
-  const from = Math.min(fromAbsolute, toAbsolute) - offset;
-  const to = Math.max(fromAbsolute, toAbsolute) - offset;
-  const global = channelFor(chart, "speed", "all");
-  const local = noteChannel(chart, note, "speed");
-  const baseSpeed = note.speed ?? 1;
-  if (!global.length && !local.length) return (toAbsolute - fromAbsolute) * baseSpeed;
-  if (!local.length) {
-    const primitive = globalPrimitive(chart, global);
-    return direction * baseSpeed * (primitive(to) - primitive(from));
-  }
-  const boundaries = [from, to];
-  addBoundaries(global, from, to, boundaries);
-  addBoundaries(local, from, to, boundaries);
-  boundaries.sort((a, b) => a - b);
-
-  // Each curve is quadratic on these intervals. The product has degree ≤4,
-  // so three-point Gauss-Legendre integrates it exactly, without frame-step drift.
-  const valueAt = time => channelValue(global, "speed", time) * channelValue(local, "speed", time);
-  let total = 0;
-  let correction = 0;
-  for (let i = 1; i < boundaries.length; i += 1) {
-    const integral = integrate(valueAt, boundaries[i - 1], boundaries[i]);
-    const adjusted = integral - correction;
-    const next = total + adjusted;
-    correction = (next - total) - adjusted;
-    total = next;
-  }
-  return direction * baseSpeed * total;
+  const from = fromAbsolute - offset;
+  const to = toAbsolute - offset;
+  const index = indexFor(chart);
+  const route=routeFor(chart,note),group=route.group;
+  const baseSpeed = (note.speed ?? 1) * (group?.speed??1);
+  if(!route.channels.speed.length)return (toAbsolute-fromAbsolute)*baseSpeed;
+  const key=route.speedKey;
+  if (!index.speedTables.has(key)) index.speedTables.set(key, speedPrimitive(route.channels.speed));
+  const primitive = index.speedTables.get(key);
+  if (index.fromTime !== from) { index.fromTime = from; index.fromValues.clear(); }
+  if (!index.fromValues.has(key)) index.fromValues.set(key, primitive(from));
+  return baseSpeed * (primitive(to) - index.fromValues.get(key));
 }
