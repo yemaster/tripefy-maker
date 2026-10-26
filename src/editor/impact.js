@@ -63,16 +63,20 @@ export function collectImpacts(chart, from, to, clock, playbackRate = 1) {
   const hits = [];
   for (const note of chart.notes) {
     const start = note.time + (chart.offset || 0);
-    const append = (time, kind) => {
+    const append = (time, kind, judgement = true, segmentIndex = null) => {
       if (time <= from || time > to) return;
       const startedAt = clock - (to - time) / rate;
       const life = kind === 'tail' ? .18 : IMPACT_LIFETIME;
       if (clock - startedAt >= life) return;
       if (hits.length === MAX_ACTIVE_IMPACTS) hits.shift();
-      hits.push({x: noteX(chart, note, time), time, kind, startedAt});
+      hits.push({x: noteX(chart, note, time), time, kind, startedAt, noteId: note.id, judgement, segmentIndex});
     };
-    append(start, 'head');
-    if (note.duration > 0) append(start + note.duration, 'tail');
+    const hold = note.duration > 0;
+    append(start, 'head', !hold);
+    if (hold) {
+      const ends = note.path?.length > 1 ? note.path.slice(1).map(node => node.time) : [note.duration];
+      ends.forEach((relative, index) => append(start + relative, index === ends.length - 1 ? 'tail' : 'checkpoint', true, index));
+    }
   }
   return hits;
 }

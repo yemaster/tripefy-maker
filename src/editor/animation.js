@@ -62,6 +62,35 @@ function channelValue(channel, property, relativeTime) {
   return event.from + (event.to - event.from) * progress;
 }
 
+function endpointTangent(h0, h1, d0, d1) {
+  const tangent = ((2 * h0 + h1) * d0 - h0 * d1) / (h0 + h1);
+  if (Math.sign(tangent) !== Math.sign(d0)) return 0;
+  if (Math.sign(d0) !== Math.sign(d1) && Math.abs(tangent) > 3 * Math.abs(d0)) return 3 * d0;
+  return tangent;
+}
+
+/** Shape-preserving PCHIP tangents: a bend cannot overshoot its neighboring nodes. */
+function pathTangent(path, index) {
+  const last = path.length - 1;
+  const slope = i => (path[i + 1].x - path[i].x) / (path[i + 1].time - path[i].time);
+  if (last === 1) return slope(0);
+  if (index === 0) {
+    return endpointTangent(path[1].time - path[0].time, path[2].time - path[1].time, slope(0), slope(1));
+  }
+  if (index === last) {
+    return endpointTangent(path[last].time - path[last - 1].time,
+      path[last - 1].time - path[last - 2].time, slope(last - 1), slope(last - 2));
+  }
+  const before = slope(index - 1);
+  const after = slope(index);
+  if (before === 0 || after === 0 || Math.sign(before) !== Math.sign(after)) return 0;
+  const hBefore = path[index].time - path[index - 1].time;
+  const hAfter = path[index + 1].time - path[index].time;
+  const w1 = 2 * hAfter + hBefore;
+  const w2 = hAfter + 2 * hBefore;
+  return (w1 + w2) / (w1 / before + w2 / after);
+}
+
 export function pathX(note, relativeTime) {
   const path = note.path;
   if (!note.duration || !path?.length) return note.x;
@@ -70,7 +99,16 @@ export function pathX(note, relativeTime) {
   const after = upperBound(path, relativeTime);
   const left = path[after - 1];
   const right = path[after];
-  const progress = ease((relativeTime - left.time) / (right.time - left.time), right.curve);
+  const length = right.time - left.time;
+  const t = (relativeTime - left.time) / length;
+  if (right.curve === "smooth") {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    const x = (2 * t3 - 3 * t2 + 1) * left.x + (t3 - 2 * t2 + t) * length * pathTangent(path, after - 1)
+      + (-2 * t3 + 3 * t2) * right.x + (t3 - t2) * length * pathTangent(path, after);
+    return clamp(x, Math.min(left.x, right.x), Math.max(left.x, right.x));
+  }
+  const progress = ease(t, right.curve);
   return left.x + (right.x - left.x) * progress;
 }
 

@@ -17,6 +17,25 @@ test('playback generates each head and hold tail once at their animated position
   const tail=collectImpacts(chart,3.2,3.3,12,1);assert.equal(tail.length,1);assert.equal(tail[0].kind,'tail');near(tail[0].x,.8);
 });
 
+test('a curved hold scores each completed segment, with no extra head or tail unit',()=>{
+  const hold={id:'segmented',type:'hold',time:1,x:.2,duration:3,path:[
+    {time:0,x:.2,curve:'smooth'},{time:1,x:.8,curve:'smooth'},
+    {time:2,x:.4,curve:'smooth'},{time:3,x:.6,curve:'smooth'},
+  ]};
+  const c={offset:.25,events:[],notes:[hold]};
+  const hits=[1.25,2.25,3.25,4.25].flatMap(t=>collectImpacts(c,t-.01,t+.01,t));
+  assert.deepEqual(hits.map(h=>h.kind),['head','checkpoint','checkpoint','tail']);
+  assert.deepEqual(hits.map(h=>h.judgement),[false,true,true,true]);
+  assert.deepEqual(hits.filter(h=>h.judgement).map(h=>h.segmentIndex),[0,1,2]);
+  [ .2,.8,.4,.6 ].forEach((x,i)=>near(hits[i].x,x));
+  assert.ok(hits.every(hit=>hit.noteId==='segmented'));
+  for(const type of ['tap','drag','heartap']){
+    const single={...hold,type,duration:0,path:[]};
+    const hit=collectImpacts({...c,notes:[single]},1.24,1.26,1.26);
+    assert.equal(hit.length,1);assert.equal(hit[0].judgement,true);
+  }
+});
+
 test('real-time aging stays short at quarter speed and includes frame latency',()=>{
   const slow=collectImpacts(chart,1.24,1.26,20,.25)[0];
   const normal=collectImpacts(chart,1.24,1.29,20,1)[0];

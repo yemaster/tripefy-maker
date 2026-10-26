@@ -2,6 +2,7 @@ const FORMAT = "tripefy.chart";
 const VERSION = 1;
 const SCENES = new Set(["dusk", "night", "clear", "overcast"]);
 const CURVES = new Set(["linear", "easeIn", "easeOut", "easeInOut"]);
+export const NOTE_TYPES = ["tap", "hold", "drag", "heartap"];
 const EVENT_RANGES = { speed: [0.1, 8], x: [-1, 1], opacity: [0, 1] };
 let nextId = 0;
 
@@ -41,9 +42,11 @@ function string(value, label, fallback) {
   return value;
 }
 
-function curve(value, label) {
+function curve(value, label, path = false) {
   const result = value === undefined ? "linear" : value;
-  if (!CURVES.has(result)) throw new Error(`${label}必须是 linear、easeIn、easeOut 或 easeInOut。`);
+  if (!CURVES.has(result) && !(path && result === "smooth")) {
+    throw new Error(`${label}必须是 ${path ? "smooth、" : ""}linear、easeIn、easeOut 或 easeInOut。`);
+  }
   return result;
 }
 
@@ -53,7 +56,7 @@ function normalizePath(value, duration, x, label) {
     if (value?.length) throw new Error(`${label}是单点音符，不能包含长按位置节点。`);
     return [];
   }
-  if (!value?.length) return [{ time: 0, x, curve: "linear" }, { time: duration, x, curve: "linear" }];
+  if (!value?.length) return [{ time: 0, x, curve: "smooth" }, { time: duration, x, curve: "smooth" }];
   if (value.length < 2) throw new Error(`${label}的位置节点必须包含长按的起点和终点。`);
   const path = value.map((item, index) => {
     const nodeLabel = `${label}的第 ${index + 1} 个位置节点`;
@@ -61,7 +64,7 @@ function normalizePath(value, duration, x, label) {
     return {
       time: number(node.time, `${nodeLabel}时间`, 0),
       x: number(node.x, `${nodeLabel}横向位置`, 0, 1),
-      curve: curve(node.curve, `${nodeLabel}缓动`),
+      curve: curve(node.curve, `${nodeLabel}缓动`, true),
     };
   });
   if (Math.abs(path[0].time) > 1e-9 || Math.abs(path.at(-1).time - duration) > 1e-9) {
@@ -160,12 +163,16 @@ export function validateChart(input) {
     const time = number(note.time, `${label}的时间`, 0);
     const x = number(note.x, `${label}的横向位置`, 0, 1);
     const length = number(note.duration, `${label}的持续时间`, 0);
+    const type = note.type === undefined ? (length > 0 ? "hold" : "tap") : note.type;
+    if (!NOTE_TYPES.includes(type)) throw new Error(`${label}的类型必须是 tap、hold、drag 或 heartap。`);
+    if (type === "hold" && length <= 0) throw new Error(`${label}的 Hold 长度必须大于 0。`);
+    if (type !== "hold" && length !== 0) throw new Error(`${label}的 ${type} 长度必须为 0。`);
     if (time + offset < -1e-9) throw new Error(`${label}在偏移后早于音频起点。`);
     if (time + offset + length > duration + 1e-9) {
       throw new Error(`${label}超出谱面长度，请延长谱面或调整音符时间。`);
     }
     return {
-      id, time, x, duration: length,
+      id, type, time, x, duration: length,
       opacity: number(note.opacity === undefined ? 1 : note.opacity, `${label}的透明度`, 0, 1),
       speed: number(note.speed === undefined ? 1 : note.speed, `${label}的速度`, 0.1, 8),
       path: normalizePath(note.path, length, x, label),

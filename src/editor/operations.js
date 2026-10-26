@@ -1,4 +1,4 @@
-import {createId} from './model.js';
+import {createId, NOTE_TYPES} from './model.js';
 const copy = value => structuredClone(value);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -66,8 +66,23 @@ export function resizeHold(note, duration) {
   duration=Math.max(0,duration);
   const old=note.duration;
   note.duration=duration;
-  if(duration<=0){note.path=[];return;}
+  if(duration<=0){if(note.type==='hold')note.type='tap';note.path=[];return;}
+  note.type='hold';
   if(old>0&&note.path?.length) note.path=note.path.map(p=>({...p,time:p.time/old*duration}));
-  else note.path=[{time:0,x:note.x,curve:'linear'},{time:duration,x:note.x,curve:'linear'}];
+  else note.path=[{time:0,x:note.x,curve:'smooth'},{time:duration,x:note.x,curve:'smooth'}];
   note.path[0].time=0;note.path[0].x=note.x;note.path[note.path.length-1].time=duration;
+}
+
+/** Keep type conversions atomic so undo restores the complete path and timing. */
+export function changeNoteType(note, type, defaultDuration = .5) {
+  if (!NOTE_TYPES.includes(type)) throw new Error('音符类型无效。');
+  if (type === 'hold') {
+    const duration = note.duration > 0 ? note.duration : defaultDuration;
+    if (!Number.isFinite(duration) || duration <= 0) throw new Error('此位置没有足够的 Hold 长度。');
+    resizeHold(note, duration);
+  } else {
+    note.duration = 0;
+    note.path = [];
+  }
+  note.type = type;
 }

@@ -23,6 +23,27 @@ test("blank and demo round-trip without mutating the input", () => {
   assert.ok(demo.notes.every(note => note.time + note.duration < 30));
 });
 
+test('note types round-trip and legacy notes infer tap or hold', () => {
+  const chart = createBlankChart();
+  chart.notes = ['tap', 'hold', 'drag', 'heartap'].map((type, i) => tap({id:type, type, time: i + 1, duration:type === 'hold' ? .5 : 0}));
+  const normalized = validateChart(chart);
+  assert.deepEqual(normalized.notes.map(n => n.type), ['tap', 'hold', 'drag', 'heartap']);
+  assert.deepEqual(validateChart(JSON.parse(serializeChart(chart))), normalized);
+  chart.notes = [tap(), tap({duration:1})];
+  assert.deepEqual(validateChart(chart).notes.map(n => n.type), ['tap', 'hold']);
+});
+
+test('note type rejects inconsistent duration and point-note paths', () => {
+  for (const value of [
+    {type:'hold'}, {type:'tap', duration:1}, {type:'drag', duration:1},
+    {type:'heartap', duration:1}, {type:'HearTap'}, {type:null},
+    ...['tap','drag','heartap'].map(type => ({type,path:[{time:0,x:.5,curve:'linear'}]})),
+  ]) {
+    const chart=createBlankChart();chart.notes=[tap(value)];
+    assert.throws(()=>validateChart(chart),/[\u4e00-\u9fff]/);
+  }
+});
+
 test("normalization generates IDs, sorts notes, accepts extra fields, and detaches data", () => {
   const chart = createBlankChart();
   chart.ignored = { extension: true };
@@ -120,7 +141,7 @@ test("older charts gain note defaults, straight hold paths, and an empty event l
   assert.equal(chart.notes[0].speed, 1);
   assert.deepEqual(chart.notes[0].path, []);
   assert.deepEqual(chart.notes[1].path, [
-    { time: 0, x: 0.3, curve: "linear" }, { time: 2, x: 0.3, curve: "linear" },
+    { time: 0, x: 0.3, curve: "smooth" }, { time: 2, x: 0.3, curve: "smooth" },
   ]);
   assert.equal(input.notes[0].opacity, undefined);
 });
@@ -143,6 +164,20 @@ test("snake paths, note properties, and timeline events survive serialization", 
   chart.events[0].to = 0.4;
   assert.equal(input.notes[0].path[1].x, 0.8);
   assert.equal(input.events.find(item => item.id === chart.events[0].id).to, 2);
+});
+
+test("smooth paths round-trip while omitted curves on explicit legacy paths stay linear", () => {
+  const input = createBlankChart();
+  input.notes = [tap({ x: .2, duration: 4, path: [
+    { time: 0, x: .2, curve: "smooth" },
+    { time: 1, x: .8, curve: "smooth" },
+    { time: 4, x: .4, curve: "smooth" },
+  ] })];
+  const chart = validateChart(input);
+  assert.deepEqual(JSON.parse(serializeChart(chart)), chart);
+  assert.deepEqual(validateChart(JSON.parse(serializeChart(chart))).notes[0].path, input.notes[0].path);
+  for (const node of input.notes[0].path) delete node.curve;
+  assert.ok(validateChart(input).notes[0].path.every(node => node.curve === "linear"));
 });
 
 test("invalid snake paths and note animation properties are rejected", () => {
@@ -171,7 +206,7 @@ test("events validate ranges, references, offsets, and nonoverlapping channels",
   chart.notes = [tap({ id: "note" })];
   for (const extra of [
     { target: "missing" }, { property: "rotation" }, { time: -1 }, { time: 120 }, { duration: -1 },
-    { from: 0 }, { to: 9 }, { from: NaN }, { to: Infinity }, { curve: "unknown" },
+    { from: 0 }, { to: 9 }, { from: NaN }, { to: Infinity }, { curve: "unknown" }, { curve: "smooth" },
     { property: "x", from: -1.1, to: 0 }, { property: "x", from: 0, to: 1.1 },
     { property: "opacity", from: 1.1, to: 0 },
   ]) {

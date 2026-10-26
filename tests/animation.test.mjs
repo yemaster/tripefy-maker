@@ -36,6 +36,63 @@ test("path interpolation uses destination curves and holds first/last positions"
   near(pathX(note(), 10), 0.3);
 });
 
+const smoothHold = nodes => note({
+  duration: nodes.at(-1)[0], x: nodes[0][1],
+  path: nodes.map(([time, x]) => ({ time, x, curve: "smooth" })),
+});
+
+test("smooth holds pass through nodes and never overshoot or reverse inside a segment", () => {
+  const cases = [
+    [[0, .1], [.1, .4], [3, .45], [4, .9]],
+    [[0, .9], [.4, .6], [.5, .1], [4, 0]],
+    [[0, .2], [1, .8], [2, .3], [2.1, .5]],
+    [[0, .2], [.01, .21], [1, .8]],
+    [[0, .2], [1, .2], [2, .8], [3, .8]],
+    [[0, .7], [1, .7], [4, .7]],
+  ];
+  for (const nodes of cases) {
+    const hold = smoothHold(nodes);
+    for (const [time, x] of nodes) near(pathX(hold, time), x);
+    for (let i = 1; i < nodes.length; i += 1) {
+      const [ta, xa] = nodes[i - 1], [tb, xb] = nodes[i];
+      let previous = xa;
+      for (let step = 1; step <= 200; step += 1) {
+        const value = pathX(hold, ta + (tb - ta) * step / 200);
+        assert.ok(value >= Math.min(xa, xb) - 1e-12 && value <= Math.max(xa, xb) + 1e-12);
+        assert.ok((value - previous) * Math.sign(xb - xa) >= -1e-12);
+        if (xa === xb) near(value, xa);
+        previous = value;
+      }
+    }
+  }
+});
+
+test("smooth joins share a tangent at uneven intervals, reversals, and flat sections", () => {
+  for (const nodes of [
+    [[0, .1], [.3, .4], [2, .8], [5, .9]],
+    [[0, .2], [1, .8], [2.5, .3]],
+    [[0, .2], [1, .2], [3, .8], [4, .8]],
+  ]) {
+    const hold = smoothHold(nodes);
+    for (let i = 1; i < nodes.length - 1; i += 1) {
+      const [time, x] = nodes[i];
+      const epsilon = Math.min(time - nodes[i - 1][0], nodes[i + 1][0] - time) * 1e-6;
+      const before = (x - pathX(hold, time - epsilon)) / epsilon;
+      const after = (pathX(hold, time + epsilon) - x) / epsilon;
+      near(before, after, 1e-5);
+      if ((x - nodes[i - 1][1]) * (nodes[i + 1][1] - x) <= 0) near(before, 0, 1e-5);
+      else assert.ok(before > 0);
+    }
+  }
+});
+
+test("two-node smooth holds stay straight and preserve endpoint positions", () => {
+  const hold = smoothHold([[0, .2], [3, .8]]);
+  for (let i = 0; i <= 20; i += 1) near(pathX(hold, i * 3 / 20), .2 + .6 * i / 20);
+  near(pathX(hold, -1), .2);
+  near(pathX(hold, 5), .8);
+});
+
 test("events respect offset, defaults, gaps, instant changes, and final persistence", () => {
   const chart = chartWith([note()], [
     event({ time: 2 }),
@@ -93,6 +150,7 @@ test("Gauss segments integrate eased speed products exactly across midpoints", (
   near(scrollDistance(chart, chart.notes[0], 0, 1), 28 / 15);
   chart.events[0].curve = "easeInOut";
   chart.events[1].curve = "easeInOut";
+  invalidateAnimationCache(chart);
   // E[ease] = 1/2, E[ease²] = 23/60.
   near(scrollDistance(chart, chart.notes[0], 0, 1), 143 / 60);
   const total = scrollDistance(chart, chart.notes[0], -0.3, 2);
