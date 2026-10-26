@@ -181,6 +181,7 @@ function removeEvent(){if(state.selectedEvents.size)commit(c=>c.events=c.events.
 function syncAudioUI(){
   const loaded=!!audio.file && audio.file.name===chart.audio;
   $('audio-name').textContent=chart.audio || '载入音频';
+  $('audio-name').title=chart.audio || '载入音频';
   $('audio-detail').textContent=loaded?`${formatTime(audio.duration)} · 已载入`:chart.audio?'请重新载入同名音频':'MP3 / OGG / WAV';
   $('audio-download').disabled=!loaded;
   $('waveform-empty').hidden=!!state.audioPeaks;
