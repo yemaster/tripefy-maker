@@ -10,6 +10,8 @@ import {pathX, eventValue, invalidateAnimationCache} from './animation.js';
 import {collectImpacts, IMPACT_LIFETIME, MAX_ACTIVE_IMPACTS} from './impact.js';
 import {wheelTimeDelta, wheelZoom, anchoredZoomTime, stepTime} from './navigation.js';
 import {snapHorizontal, laneCount, validHorizontalMode} from './lanes.js';
+import {extendsSelection} from './selection.js';
+import {resolveEventValues,setEventValueMode} from './event-values.js';
 
 const $ = id => document.getElementById(id);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -43,7 +45,7 @@ let targetOptionsChart=null;
 const audioCache = new Map();
 const sceneNames = {dusk:'黄昏',night:'夜晚',clear:'晴朗',overcast:'阴天'};
 const toolNames = {select:'选择',tap:'Tap',hold:'Hold',erase:'擦除'};
-const toolHints = {select:'拖动框选 · Shift 多选 · 拖尾端调整 Hold',tap:'单击放置 Tap · 滚轮移动时间 · Space 播放',hold:'按下确定头部，向上拖出尾部 · Alt 临时取消吸附',erase:'单击或拖动擦除 · Ctrl Z 撤销'};
+const toolHints = {select:'拖动框选 · Ctrl / ⌘ / Option 多选 · 拖尾端调整 Hold',tap:'单击放置 Tap · 滚轮移动时间 · Space 播放',hold:'按下确定头部，向上拖出尾部 · Alt 临时取消吸附',erase:'单击或拖动擦除 · Ctrl Z 撤销'};
 
 function toast(message) { $('toast').textContent=message; $('toast').hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('toast').hidden=true,3200); }
 function emit(name,detail){window.dispatchEvent(new CustomEvent('editor:'+name,{detail}));}
@@ -118,7 +120,7 @@ function syncSelection(){
   inspectedSelection=selectionKey;
   $('selection-count').textContent=count;
   $('selection-empty').hidden=!!count; $('selection-fields').hidden=!count;
-  $('status-selection').textContent=count?`${count} 个音符`:state.selectedEvents.size?`${state.selectedEvents.size} 个事件`:'未选择';
+  $('status-selection').textContent=[count?`${count} 个音符`:'',state.selectedEvents.size?`${state.selectedEvents.size} 个事件`:''].filter(Boolean).join(' · ')||'未选择';
   for(const id of ['copy-selection','cut-selection'])$(id).disabled=!count&&!state.selectedEvents.size;
   for(const id of ['mirror-selection','delete-selection'])$(id).disabled=!count;
   $('align-selection').disabled=!count||!laneCount(state.xSnap);
@@ -160,14 +162,17 @@ function syncEvents(){
     $('event-duration').value=Number(event.duration.toFixed(6));
     $('event-time').value=Number((event.time+chart.offset).toFixed(6));
     const scale=event.property==='speed'?1:100;
-    const range=event.property==='speed'?[.1,8]:event.property==='opacity'?[0,100]:[-100,100];
+    const mode=event.valueMode||'end';$('event-value-mode').value=mode;
+    const range=mode==='delta'?(event.property==='speed'?[-7.9,7.9]:event.property==='opacity'?[-100,100]:[-200,200]):event.property==='speed'?[.1,8]:event.property==='opacity'?[0,100]:[-100,100];
     const unit={speed:'速度 (×)',x:'偏移 (%)',opacity:'透明度 (%)'}[event.property];
-    for(const key of ['from','to']){const id='event-'+key;$(id).value=Number((event[key]*scale).toFixed(3));$(id).min=range[0];$(id).max=range[1];$(id).step=event.property==='speed'?.05:1;document.querySelector(`label[for="${id}"]`).textContent=(key==='from'?'起始':'结束')+unit;}
+    $('event-to').value=Number(((event.valueMode?event.value:event.to)*scale).toFixed(3));$('event-to').min=range[0];$('event-to').max=range[1];$('event-to').step=event.property==='speed'?.05:1;
+    document.querySelector('label[for="event-to"]').textContent=(mode==='delta'?'变化量 · ':'终值 · ')+unit;
+    $('event-start-value').textContent=`${event.valueMode?'自动起点':'原谱起点'} ${Number((event.from*scale).toFixed(3))} → ${Number((event.to*scale).toFixed(3))}`;
   }
   syncInspectorLists();
 }
-function selectEvents(ids){const eventsById=new Map(chart.events.map(event=>[event.id,event]));state.selectedEvents=new Set(ids.filter(id=>eventsById.has(id)&&targetEditable(chart,eventsById.get(id).target)));state.selectedEventId=[...state.selectedEvents][0]||null;state.selected.clear();syncSelection();syncEvents();}
-function selectEvent(id,append=false){const event=chart.events.find(e=>e.id===id);if(!event||!targetEditable(chart,event.target))return;const ids=append?new Set(state.selectedEvents):new Set();if(append&&ids.has(id))ids.delete(id);else ids.add(id);selectEvents([...ids]);if(state.eventLayer!==-1)state.eventLayer=event.layer||0;syncEvents();emit('panel',{panel:'events'});}
+function selectEvents(ids,preserveNotes=false){const eventsById=new Map(chart.events.map(event=>[event.id,event]));state.selectedEvents=new Set(ids.filter(id=>eventsById.has(id)&&targetEditable(chart,eventsById.get(id).target)));state.selectedEventId=[...state.selectedEvents][0]||null;if(!preserveNotes)state.selected.clear();syncSelection();syncEvents();}
+function selectEvent(id,append=false){const event=chart.events.find(e=>e.id===id);if(!event||!targetEditable(chart,event.target))return;const ids=append?new Set(state.selectedEvents):new Set();if(append&&ids.has(id))ids.delete(id);else ids.add(id);selectEvents([...ids],append);if(state.eventLayer!==-1)state.eventLayer=event.layer||0;syncEvents();emit('panel',{panel:'events'});}
 function addPathNode(time=null,x=null){
   const note=singleHold();if(!note)return;const index=state.selectedNodeIndex;
   const left=note.path[Math.min(index,note.path.length-2)],right=note.path[Math.min(index+1,note.path.length-1)];
@@ -223,18 +228,19 @@ async function togglePlayback(){
 }
 function undo(){finishDrag();pause();if(!history.canUndo)return;replaceChart(history.undo(chart));restoreCachedAudio();state.selected.clear();syncSelection();}
 function redo(){finishDrag();pause();if(!history.canRedo)return;replaceChart(history.redo(chart));restoreCachedAudio();state.selected.clear();syncSelection();}
-function removeSelected(){if(!state.selected.size)return;commit(c=>deleteSelection(c,state.selected));state.selected.clear();syncSelection();}
+function removeSelected(){if(!state.selected.size&&!state.selectedEvents.size)return;commit(c=>{deleteSelection(c,state.selected);c.events=c.events.filter(e=>!state.selectedEvents.has(e.id));});state.selected.clear();state.selectedEvents.clear();state.selectedEventId=null;syncSelection();syncEvents();}
 function syncClipboard(){$('paste-selection').disabled=!clipboard.notes.length&&!eventClipboard.length;$('mirror-paste').disabled=!clipboard.notes.length;}
 function copyEvents(){eventClipboard=clone(chart.events.filter(e=>state.selectedEvents.has(e.id)));clipboard={notes:[],events:[]};syncClipboard();syncInspectorLists();if(eventClipboard.length)toast(`已复制 ${eventClipboard.length} 个事件`);}
 function pasteEventClipboard(){if(!eventClipboard.length)return;if(eventClipboard.some(e=>!targetEditable(chart,state.eventTarget!=='*'&&state.eventTarget!=='selected'?state.eventTarget:e.target))){toast('请先解锁目标组');return;}let ids=[];if(commit(c=>ids=pasteEvents(c,eventClipboard,snap(state.time),state.eventTarget!=='*'&&state.eventTarget!=='selected'?state.eventTarget:null))){state.eventLayer=state.chart.events.find(e=>e.id===ids[0])?.layer||0;selectEvents(ids);}}
-function copy(){finishDrag();if(state.selectedEvents.size){copyEvents();return;}clipboard=copySelection(chart,state.selected);eventClipboard=[];syncClipboard();syncInspectorLists();if(clipboard.notes.length)toast(`已复制 ${clipboard.notes.length} 个音符`);}
-function cut(){if(state.selectedEvents.size){copyEvents();removeEvent();return;}if(!state.selected.size)return;copy();removeSelected();}
+function copy(){finishDrag();if(state.selectedEvents.size&&!state.selected.size){copyEvents();return;}clipboard=copySelection(chart,state.selected,state.selectedEvents);eventClipboard=[];syncClipboard();syncInspectorLists();if(clipboard.notes.length)toast(`已复制 ${clipboard.notes.length} 个音符${state.selectedEvents.size?` · ${state.selectedEvents.size} 个事件`:''}`);}
+function cut(){if(!state.selected.size&&!state.selectedEvents.size)return;copy();removeSelected();}
 function selectAll(){finishDrag();setTool('select');state.selectedEventId=null;state.selectedEvents.clear();state.selected=new Set(chart.notes.filter(n=>noteEditable(n,state)).map(n=>n.id));syncSelection();syncEvents();}
 function mirror(){if(state.selected.size){state.groupFilter='all';commit(c=>mirrorSelection(c,state.selected));}}
 function paste(mirrored=false){
   if(!clipboard.notes.length){if(!mirrored)pasteEventClipboard();return;}
-  let ids=[];state.groupFilter='all';
-  if(commit(c=>ids=pasteSelection(c,clipboard,snap(state.time),{mirror:mirrored}))){state.selected=new Set(ids);state.selectedEventId=null;state.selectedEvents.clear();syncSelection();syncEvents();}
+  let ids=[];state.groupFilter='all';const priorEvents=new Set(chart.events.map(e=>e.id));
+  if(clipboard.events.some(e=>clipboard.selectedEventIds?.includes(e.id)&&!clipboard.notes.some(n=>n.id===e.target)&&!clipboard.groups?.some(g=>g.id===e.target)&&!targetEditable(chart,e.target))){toast('请先解锁目标组');return;}
+  if(commit(c=>ids=pasteSelection(c,clipboard,snap(state.time),{mirror:mirrored}))){state.selected=new Set(ids);state.selectedEvents=new Set(clipboard.selectedEventIds?.length?chart.events.filter(e=>!priorEvents.has(e.id)).map(e=>e.id):[]);state.selectedEventId=[...state.selectedEvents][0]||null;syncSelection();syncEvents();}
 }
 function download(blob,name){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);}
 function exportChart(){
@@ -324,15 +330,18 @@ $('add-event').addEventListener('click',()=>{
   const next=existing.find(e=>e.time>time);
   const duration=Math.max(0,Math.min(secondsForBeats(chart,time+chart.offset,1),chart.duration-chart.offset-time,next?next.time-time:Infinity));
   const value=eventValue(chart,property,time+chart.offset,target,layer),id=createId();
-  if(commit(c=>c.events.push({id,target,property,time,duration,from:value,to:value,curve:'linear',...(layer?{layer}:{})})))selectEvent(id);
+  if(commit(c=>c.events.push({id,target,property,time,duration,from:value,to:value,valueMode:'end',value,curve:'linear',...(layer?{layer}:{})})))selectEvent(id);
 });
 $('delete-event').addEventListener('click',removeEvent);
-for(const key of ['property','target','time','duration','from','to','curve','layer']) $('event-'+key).addEventListener('change',e=>{
+for(const key of ['property','target','time','duration','to','curve','layer','value-mode']) $('event-'+key).addEventListener('change',e=>{
   const id=state.selectedEventId;if(!id)return;
   commit(c=>{
     const event=c.events.find(e=>e.id===id);
-    event[key]=['property','target','curve'].includes(key)?e.target.value:Number(e.target.value)/(['from','to'].includes(key)&&event.property!=='speed'?100:1)-(key==='time'?c.offset:0);
-    if(key==='property')event.from=event.to=event.property==='x'?0:1;
+    if(key==='value-mode'){setEventValueMode(event,e.target.value);return;}
+    if(!event.valueMode)setEventValueMode(event,'end');
+    if(key==='to')event.value=Number(e.target.value)/(event.property==='speed'?1:100);
+    else event[key]=['property','target','curve'].includes(key)?e.target.value:Number(e.target.value)-(key==='time'?c.offset:0);
+    if(key==='property'){event.valueMode='end';event.value=eventValue({...c,events:c.events.filter(other=>other.id!==id)},event.property,event.time+c.offset,event.target,event.layer||0);}
   });
   const changed=chart.events.find(e=>e.id===id);if(changed){state.eventLayer=changed.layer||0;if(!['*','selected',changed.target].includes(state.eventTarget))state.eventTarget=groupMap(chart).has(changed.target)?changed.target:'*';syncEvents();}
 });
@@ -381,21 +390,23 @@ $('editor').addEventListener('pointerdown',e=>{
   const hit=renderer.hitTest(e.clientX,e.clientY,state);
   const event=renderer.hitEvent(e.clientX,e.clientY,state);
   $('editor').setPointerCapture(e.pointerId);
-  if(event&&e.button===0){if(e.shiftKey||!state.selectedEvents.has(event.id))selectEvent(event.id,e.shiftKey);drag={kind:'event',before:clone(chart),point,eventId:event.id};return;}
-  state.selectedEventId=null;state.selectedEvents.clear();
+  const append=extendsSelection(e);
+  if(event&&e.button===0){if(append||!state.selectedEvents.has(event.id))selectEvent(event.id,append);if(state.selectedEvents.has(event.id))drag={kind:'event',before:clone(chart),point,eventId:event.id};return;}
+  if(!append&&(!hit||!state.selected.has(hit.note.id))){state.selectedEventId=null;state.selectedEvents.clear();}
   if(tool==='erase'||e.button===2){drag={kind:'erase',before:clone(chart)};eraseAt(e);return;}
   if(hit){
-    if(e.shiftKey&&state.selected.has(hit.note.id)){state.selected.delete(hit.note.id);syncSelection();return;}
-    if(!state.selected.has(hit.note.id)){if(!e.shiftKey)state.selected.clear();state.selected.add(hit.note.id);state.selectedNodeIndex=0;}
-    const kind=hit.part==='node'&&state.selected.size===1?'node':hit.part==='tail'&&state.selected.size===1?'resize':'move';
+    if(append&&state.selected.has(hit.note.id)){state.selected.delete(hit.note.id);syncSelection();syncEvents();return;}
+    if(!state.selected.has(hit.note.id)){if(!append)state.selected.clear();state.selected.add(hit.note.id);state.selectedNodeIndex=0;}
+    const single=state.selected.size===1&&!state.selectedEvents.size;
+    const kind=hit.part==='node'&&single?'node':hit.part==='tail'&&single?'resize':'move';
     if(kind==='node')state.selectedNodeIndex=hit.index;
     drag={kind,before:clone(chart),point,notes:clone(selectedNotes()),noteId:hit.note.id,index:hit.index};
     syncSelection();syncEvents();return;
   }
-  if(tool==='select'||e.shiftKey){
-    const initial=e.shiftKey?new Set(state.selected):new Set();
-    if(!e.shiftKey)state.selected.clear();
-    drag={kind:'marquee',point,initial};state.marquee={x1:point.canvasX,y1:point.canvasY,x2:point.canvasX,y2:point.canvasY};syncSelection();syncEvents();return;
+  if(tool==='select'||append&&!e.altKey){
+    const initial=append?new Set(state.selected):new Set(),initialEvents=append?new Set(state.selectedEvents):new Set();
+    if(!append)state.selected.clear();
+    drag={kind:'marquee',point,initial,initialEvents};state.marquee={x1:point.canvasX,y1:point.canvasY,x2:point.canvasX,y2:point.canvasY};syncSelection();syncEvents();return;
   }
   if(!point.inside)return;
   const active=groupMap(chart).get(state.groupFilter);if(active?.locked||active?.hidden){toast('当前分组已锁定或隐藏');return;}
@@ -427,15 +438,16 @@ $('editor').addEventListener('pointermove',e=>{
   if(drag.kind==='marquee'){
     state.marquee.x2=point.canvasX;state.marquee.y2=point.canvasY;
     state.selected=new Set(drag.initial);
-    chart.notes.forEach(n=>{if(renderer.intersects(n,state.marquee,state))state.selected.add(n.id);});syncSelection();return;
+    chart.notes.forEach(n=>{if(renderer.intersects(n,state.marquee,state))state.selected.add(n.id);});
+    state.selectedEvents=new Set(drag.initialEvents);chart.events.forEach(event=>{if(renderer.intersectsEvent(event,state.marquee,state))state.selectedEvents.add(event.id);});state.selectedEventId=[...state.selectedEvents][0]||null;syncSelection();syncEvents();return;
   }
   if(drag.kind==='event'){
     const originals=drag.before.events.filter(e=>state.selectedEvents.has(e.id)),anchor=originals.find(e=>e.id===drag.eventId);
     if(!anchor)return;
     let delta=snap(anchor.time+chart.offset+point.time-drag.point.time,e.altKey)-chart.offset-anchor.time;
     delta=clamp(delta,Math.max(...originals.map(e=>Math.max(0,-chart.offset)-e.time)),Math.min(...originals.map(e=>chart.duration-chart.offset-e.time-e.duration)));
-    for(const original of originals)chart.events.find(e=>e.id===original.id).time=original.time+delta;
-    invalidateAnimationCache(chart);syncEvents();return;
+    moveSelection(chart,drag.before,state.selected,delta,0,0,state.selectedEvents);
+    resolveEventValues(chart.events);invalidateAnimationCache(chart);syncEvents();return;
   }
   if(drag.kind==='node'){
     const n=chart.notes.find(n=>n.id===drag.noteId),original=drag.notes.find(n=>n.id===drag.noteId),index=drag.index;
@@ -457,7 +469,7 @@ $('editor').addEventListener('pointermove',e=>{
     const dt=snap(effectiveTime(anchor,chart)+point.time-drag.point.time,e.altKey)-effectiveTime(anchor,chart);
     const dx=snapX(anchor.x+point.x-drag.point.x,e.altKey)-anchor.x;
     const keys=laneCount(state.xSnap);
-    moveSelection(chart,drag.before,state.selected,dt,dx,keys&&!e.altKey?1/keys:0);invalidateAnimationCache(chart);syncSelection();
+    moveSelection(chart,drag.before,state.selected,dt,dx,keys&&!e.altKey?1/keys:0,state.selectedEvents);resolveEventValues(chart.events);invalidateAnimationCache(chart);syncSelection();syncEvents();
   }
 });
 $('editor').addEventListener('pointerup',e=>{finishDrag();if($('editor').hasPointerCapture(e.pointerId))$('editor').releasePointerCapture(e.pointerId);});
@@ -491,11 +503,13 @@ document.addEventListener('keydown',e=>{
   if(command){
     const key=e.key.toLowerCase();
     if(['z','y','a','c','v','x','m','g'].includes(key))e.preventDefault();
-    if(key==='z')e.shiftKey?redo():undo();else if(key==='y')redo();else if(key==='a')selectAll();else if(key==='c')copy();else if(key==='v')paste(e.shiftKey);else if(key==='x')cut();else if(key==='m')mirror();else if(key==='g')window.dispatchEvent(new CustomEvent('editor:authoring',{detail:{type:e.shiftKey?'assign-group':'create-group',id:''}}));return;
+    if(key==='z')e.shiftKey?redo():undo();else if(key==='y')redo();else if(key==='a'){
+      if(document.querySelector('[data-panel=events][data-state=active]'))selectEvents(chart.events.filter(event=>eventVisible(event,state)&&targetEditable(chart,event.target)).map(e=>e.id));else selectAll();
+    }else if(key==='c')copy();else if(key==='v')paste(e.shiftKey);else if(key==='x')cut();else if(key==='m')mirror();else if(key==='g')window.dispatchEvent(new CustomEvent('editor:authoring',{detail:{type:e.shiftKey?'assign-group':'create-group',id:''}}));return;
   }
   if(e.code==='Space'){e.preventDefault();if(!e.repeat)togglePlayback();}
   else if(['1','2','3','4'].includes(e.key))setTool(['select','tap','hold','erase'][Number(e.key)-1]);
-  else if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();state.selectedEventId?removeEvent():removeSelected();}
+  else if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();removeSelected();}
   else if(e.key==='Escape'){if(drag?.before){chart=drag.before;state.chart=chart;}drag=null;state.draft=null;state.marquee=null;state.selected.clear();state.selectedEventId=null;state.selectedEvents.clear();syncUI();}
   else if(e.key==='Home'){e.preventDefault();seek(0);}
   else if(e.key==='ArrowUp'||e.key==='ArrowDown'){e.preventDefault();step(e.key==='ArrowUp'?1:-1,e.shiftKey);}

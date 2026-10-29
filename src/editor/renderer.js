@@ -217,6 +217,14 @@ export class Renderer {
     return (state.chart.events||[]).find(e=>eventVisible(e,state)&&targetEditable(state.chart,e.target)&&Math.abs(p.canvasY-(g.hitY-(e.time+state.chart.offset-state.time)*g.pxPerSecond))<=8)||null;
   }
 
+  intersectsEvent(event, marquee, state) {
+    if(!eventVisible(event,state)||!targetEditable(state.chart,event.target))return false;
+    const g=this.geometry(),y=g.hitY-(event.time+state.chart.offset-state.time)*g.pxPerSecond;
+    const end=y-event.duration*g.pxPerSecond;
+    return Math.max(marquee.x1,marquee.x2)>=g.left-21&&Math.min(marquee.x1,marquee.x2)<=g.left-13
+      &&Math.max(marquee.y1,marquee.y2)>=end-4&&Math.min(marquee.y1,marquee.y2)<=y+4;
+  }
+
   _drawEvents(state,g) {
     const ctx=this.ctx;
     for(const e of state.chart.events||[]) {
