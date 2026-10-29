@@ -1,5 +1,6 @@
 import {normalizeGroups, normalizePresets} from './authoring-schema.js';
 import {normalizeBpmChanges, beatAtTime, timeAtBeat} from './timing.js';
+import {resolveEventValues} from './event-values.js';
 const FORMAT = "tripefy.chart";
 const VERSION = 1;
 const SCENES = new Set(["dusk", "night", "clear", "overcast"]);
@@ -218,10 +219,15 @@ export function validateChart(input) {
     const normalized = {
       id, target, property, time, duration: length,
       ...(layer ? {layer} : {}),
-      from: number(event.from, `${label}的起始值`, minimum, maximum),
-      to: number(event.to, `${label}的结束值`, minimum, maximum),
+      from: event.valueMode ? 0 : number(event.from, `${label}的起始值`, minimum, maximum),
+      to: event.valueMode ? 0 : number(event.to, `${label}的结束值`, minimum, maximum),
       curve: curve(event.curve, `${label}的缓动`),
     };
+    if (event.valueMode !== undefined) {
+      if (!['end', 'delta'].includes(event.valueMode)) throw new Error(`${label}的数值模式无效。`);
+      normalized.valueMode = event.valueMode;
+      normalized.value = number(event.value, `${label}的终值或变化量`);
+    }
     const key = JSON.stringify([target, property, layer]);
     if (!channels.has(key)) channels.set(key, []);
     channels.get(key).push(normalized);
@@ -236,6 +242,12 @@ export function validateChart(input) {
         throw new Error("同一目标、同一属性的事件不能重叠或在同一时刻重复开始。");
       }
     }
+  }
+  resolveEventValues(events);
+  for (const event of events) {
+    const [minimum, maximum] = EVENT_RANGES[event.property];
+    number(event.from, '事件自动起始值', minimum, maximum);
+    number(event.to, '事件计算终值', minimum, maximum);
   }
   events.sort((a, b) => a.time - b.time || a.target.localeCompare(b.target) || a.property.localeCompare(b.property));
 

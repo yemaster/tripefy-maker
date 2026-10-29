@@ -60,7 +60,7 @@ export function attachAuthoring({state,commit,sync,toast,emit,snap,pause,downloa
         let ids=[];pause();
         if(commit(c=>ids=applyPreset(c,preset,targets,{...d.options,start:snap(state.time)}))){state.eventLayer=new Set(state.chart.events.filter(e=>ids.includes(e.id)).map(e=>e.layer||0)).size>1?-1:d.options.layer;state.eventTarget='*';selectEvents(ids);emit('panel',{panel:'events'});toast(`已生成 ${ids.length} 个事件`);}
       }
-      if(d.type==='save-preset')commit(c=>(c.animationPresets||=[]).push(presetFromEvents(c.events.filter(e=>state.selectedEvents.has(e.id)),d.name)));
+      if(d.type==='save-preset')commit(c=>(c.animationPresets||=[]).push(presetFromEvents(c.events.filter(e=>state.selectedEvents.has(e.id)),d.name,c)));
       if(d.type==='rename-preset')commit(c=>c.animationPresets.find(p=>p.id===d.id).name=d.name);
       if(d.type==='delete-preset')commit(c=>c.animationPresets=c.animationPresets.filter(p=>p.id!==d.id));
       if(d.type==='export-presets')download(new Blob([JSON.stringify({format:'tripefy.presets',version:1,presets:chart.animationPresets},null,2)],{type:'application/json'}),'Tripefy.presets.json');

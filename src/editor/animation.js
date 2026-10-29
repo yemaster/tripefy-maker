@@ -1,4 +1,4 @@
-const DEFAULTS = { speed: 1, opacity: 1, x: 0 };
+import {EVENT_DEFAULTS as DEFAULTS, resolveEventValues} from './event-values.js';
 const EMPTY = [];
 const indexes = new WeakMap();
 const clamp = (value, minimum = 0, maximum = 1) => Math.min(maximum, Math.max(minimum, value));
@@ -23,7 +23,7 @@ function indexFor(chart) {
   let index = indexes.get(chart);
   if (index?.events === events && index.length === events.length && index.groupsSource === groups) return index;
   const targets = new Map();
-  for (const event of events) {
+  for (const event of resolveEventValues(events.map(event=>event.valueMode?{...event}:event))) {
     let properties = targets.get(event.target);
     if (!properties) targets.set(event.target, properties = new Map());
     let layers = properties.get(event.property);

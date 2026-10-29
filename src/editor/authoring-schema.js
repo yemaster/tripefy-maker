@@ -32,6 +32,10 @@ export function normalizePresets(value = []) {
       if (time + duration > 1 + 1e-9) throw new Error('预设事件不能越过预设结尾。');
       const layer = finite(item.layer ?? 0,0,3,'事件层'); if (!Number.isInteger(layer)) throw new Error('事件层必须为整数。');
       const event = {property:item.property,time,duration,from:finite(item.from,min,max,'起始值'),to:finite(item.to,min,max,'结束值'),curve:item.curve,layer};
+      if(item.valueMode!==undefined){
+        if(!['end','delta'].includes(item.valueMode))throw new Error('预设数值模式无效。');
+        event.valueMode=item.valueMode;event.value=finite(item.value,-Infinity,Infinity,'预设数值');
+      }
       const key = `${layer}:${item.property}`; if (!channels.has(key)) channels.set(key,[]); channels.get(key).push(event);
       return event;
     });

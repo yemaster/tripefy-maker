@@ -55,7 +55,7 @@ test('beat mapping is continuous and reversible across changing BPM, offsets and
 test('preset expansion honors beat changes, repeat, stagger, strength, layers and per-note ending',()=>{
   const c=fixture();c.bpmChanges=[{time:2,bpm:180}];
   const ids=applyPreset(c,BUILTIN_PRESETS[3],['a','b'],{start:1.25,beats:4,repeat:2,stagger:1,amount:.5,layer:2});
-  assert.equal(ids.length,4);near(c.events[0].duration,1+2/3);near(c.events[0].from,-.125);assert.equal(c.events[0].layer,2);validateChart(c);
+  assert.equal(ids.length,4);near(c.events[0].duration,1+2/3);near(c.events[0].from,0);near(c.events[0].to,-.125);near(c.events[1].from,-.125);assert.equal(c.events[0].layer,2);validateChart(c);
   const aligned=fixture();applyPreset(aligned,BUILTIN_PRESETS[0],['a'],{start:0,beats:2,repeat:2,relative:true});
   near(aligned.events.at(-1).time+aligned.events.at(-1).duration,aligned.notes[0].time);
 });
